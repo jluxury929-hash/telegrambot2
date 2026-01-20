@@ -1,0 +1,32 @@
+{
+  "name": "apex-predator-v400",
+  "version": "400.0.0",
+  "description": "Titan-Grid Hybrid Trading Bot (AI + Deterministic Arbitrage)",
+  "main": "bot.js",
+  "scripts": {
+    "start": "node bot.js",
+    "monitor": "node health-monitor.js"
+  },
+  "keywords": [
+    "mev",
+    "bot",
+    "arbitrage",
+    "ethers-v6",
+    "flashbots",
+    "ai-trading"
+  ],
+  "author": "Apex Titan Systems",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.7.2",
+    "colors": "^1.4.0",
+    "dotenv": "^16.4.5",
+    "ethers": "6.7.1",
+    "@flashbots/ethers-provider-bundle": "^1.0.0",
+    "sentiment": "^5.0.2",
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

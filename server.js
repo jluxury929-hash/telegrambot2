@@ -30,8 +30,8 @@ require('colors');
 // ============================
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
 const EXECUTOR_ADDRESS = process.env.EXECUTOR_ADDRESS;
-const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN || "8170675461:AAFgVbogXYrJ10QXLMpKsKUHBqx39ZRcYl8";
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const TELEGRAM_TOKEN = '8041662519:AAE3NRrjFJsOQzmfxkx5OX5A-X-ACVaP0Qk'; // New bot
+const TELEGRAM_CHAT_ID = '@ApexPredatorFlashBot';
 
 const MIN_BALANCE_THRESHOLD = parseEther("0.001");
 const TRADE_ALLOCATION_PERCENT = 80;
@@ -149,7 +149,7 @@ async function runWorker(chain){
                 if(payload.params && payload.params.result){
                     const signals=ACTIVE_SIGNALS.length>0?ACTIVE_SIGNALS:[{ticker:"DISCOVERY",confidence:0.5,source:"DISCOVERY"}];
                     for(const sig of signals){
-                        await strike(provider,wallet,contract,chain,sig.ticker,sig.confidence,sig.source,flashbots);
+                        await strike(provider,wallet,contract,chain,sig.ticker,sig.confidence,sig.source,flashbots,ai);
                     }
                 }
             } catch(e){}
@@ -162,7 +162,7 @@ async function runWorker(chain){
 // ============================
 // STRIKE LOGIC
 // ============================
-async function strike(provider,wallet,contract,chain,ticker,confidence,source,flashbots){
+async function strike(provider,wallet,contract,chain,ticker,confidence,source,flashbots,ai){
     try{
         const balance=await provider.getBalance(wallet.address);
         const overhead=parseEther("0.01");

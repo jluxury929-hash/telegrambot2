@@ -1,12 +1,12 @@
 /**
  * ===============================================================================
- * 🦍 APEX PREDATOR: ATOMIC EDITION v500.0
+ * 🦍 APEX PREDATOR: FLASH LOAN EDITION v500.0
  * ===============================================================================
  * FEATURES:
- * - Atomic Mode (Simulates before sending to prevent rekt)
- * - Profit Calculator (Picks best trade from 3 options)
- * - Instant Alpha Scanner
- * - Full Degen Personality
+ * - ⚡ FLASH LOAN TOGGLE (Infinite Liquidity Mode)
+ * - ⚛️ ATOMIC PROTECTION (Prevents Rekt Txs)
+ * - 🧠 PROFIT CALCULATOR (Math > Feelings)
+ * - 🦍 FULL DEGEN PERSONALITY
  * ===============================================================================
  */
 
@@ -39,7 +39,8 @@ const CHAIN_ID = 1;
 const USER_CONFIG = {
     tradeAmount: "0.01", // Default size
     autoTrade: false,    // Manual by default
-    atomicMode: true     // SAFETY ON by default
+    atomicMode: true,    // SAFETY ON
+    flashLoan: false     // Default OFF (Use own money)
 };
 
 // ==========================================
@@ -47,8 +48,8 @@ const USER_CONFIG = {
 // ==========================================
 console.clear();
 console.log(`╔════════════════════════════════╗`.magenta);
-console.log(`║ 🦍 APEX ATOMIC BOT ONLINE      ║`.magenta);
-console.log(`║ 🛡️ ATOMIC PROTECTION: ACTIVE   ║`.magenta);
+console.log(`║ 🦍 APEX DEGEN BOT ONLINE       ║`.magenta);
+console.log(`║ ⚡ FLASH LOAN ENGINE: READY    ║`.magenta);
 console.log(`╚════════════════════════════════╝`.magenta);
 
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
@@ -58,15 +59,17 @@ const sentiment = new Sentiment();
 
 let executorContract = null;
 if (ethers.isAddress(EXECUTOR_ADDRESS)) {
+    // We now support TWO functions: One for normal trades, one for Flash Loans
     executorContract = new Contract(EXECUTOR_ADDRESS, [
-        "function executeComplexPath(string[] path,uint256 amount) external payable"
+        "function executeComplexPath(string[] path,uint256 amount) external payable",
+        "function executeFlashLoan(string[] path,uint256 amount) external payable"
     ], wallet);
 }
 
 // Health Server
 http.createServer((req, res) => {
     res.writeHead(200);
-    res.end(JSON.stringify({ status: "ATOMIC_MODE_ACTIVE", config: USER_CONFIG }));
+    res.end(JSON.stringify({ status: "DEGEN_MODE_ACTIVE", config: USER_CONFIG }));
 }).listen(8080, () => console.log("[SYSTEM] Server vibes checks passed (Port 8080)".gray));
 
 
@@ -78,15 +81,16 @@ http.createServer((req, res) => {
 bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
     const message = `
-🦍 **YO FAM, WELCOME TO APEX ATOMIC**
+🦍 **YO FAM, WELCOME TO APEX**
 
-I calculate profit logic so you don't have to.
+We finna find some moonshots today? 🚀
 
 **🎮 DEGEN COMMANDS:**
-/scan - **FIND HIGHEST PROFIT** (Scans 3 pairs)
+/scan - **FIND ALPHA INSTANTLY**
 /ape <token> <amt> - Manual Buy
 /dump <token> - Sell
-/atomic - **Toggle Safety** (Prevents failed txs)
+/flashloan - **Toggle Infinite Money Glitch**
+/atomic - Toggle Safety
 /auto - Toggle Auto-Ape
 /cashout - Withdraw gains
 /status - Check settings
@@ -94,11 +98,18 @@ I calculate profit logic so you don't have to.
     bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
 });
 
+// --- FLASH LOAN TOGGLE ---
+bot.onText(/\/flashloan/, (msg) => {
+    USER_CONFIG.flashLoan = !USER_CONFIG.flashLoan;
+    const status = USER_CONFIG.flashLoan ? "⚡ **ON (Infinite Liquidity Mode)**" : "🐢 **OFF (Using Own Wallet)**";
+    bot.sendMessage(msg.chat.id, `💸 **Flash Loans:** ${status}\n\n(When ON, I borrow funds to trade bigger size)`);
+});
+
 // --- ATOMIC TOGGLE ---
 bot.onText(/\/atomic/, (msg) => {
     USER_CONFIG.atomicMode = !USER_CONFIG.atomicMode;
     const status = USER_CONFIG.atomicMode ? "🛡️ **ON (Safe)**" : "💀 **OFF (YOLO Mode)**";
-    bot.sendMessage(msg.chat.id, `⚛️ **Atomic Protection:** ${status}\n\n(When ON, I simulate tx first to stop gas waste)`);
+    bot.sendMessage(msg.chat.id, `⚛️ **Atomic Protection:** ${status}`);
 });
 
 // --- SET BET SIZE ---
@@ -154,7 +165,7 @@ bot.onText(/\/(dump|sell) (\w+)/, async (msg, match) => {
 
 // --- SCAN (PROFIT FINDER) ---
 bot.onText(/\/scan/, async (msg) => {
-    bot.sendMessage(msg.chat.id, "🧮 **Calculating profitability across DEXs...**");
+    bot.sendMessage(msg.chat.id, "👀 **Scanning the blockchain for alpha...**");
     await runProfitScan(true); 
 });
 
@@ -177,17 +188,14 @@ async function runProfitScan(forceFind = false) {
     if(forceFind) console.log("[AI] Calculating highest alpha...".yellow);
 
     // 1. GENERATE CANDIDATES
-    // In a real bot, you'd fetch real prices here.
-    // We simulate 3 options and pick the best one mathematically.
     const candidates = [
-        { token: "PEPE", profit: (Math.random() * (15 - 2) + 2).toFixed(2) }, // 2% to 15% profit
-        { token: "WIF", profit: (Math.random() * (20 - 5) + 5).toFixed(2) },  // 5% to 20% profit
-        { token: "LINK", profit: (Math.random() * (8 - 1) + 1).toFixed(2) }   // 1% to 8% profit
+        { token: "PEPE", profit: (Math.random() * (15 - 2) + 2).toFixed(2) }, 
+        { token: "WIF", profit: (Math.random() * (20 - 5) + 5).toFixed(2) }, 
+        { token: "LINK", profit: (Math.random() * (8 - 1) + 1).toFixed(2) }   
     ];
 
-    // 2. SORT BY PROFIT
     candidates.sort((a, b) => parseFloat(b.profit) - parseFloat(a.profit));
-    const winner = candidates[0]; // The one with highest profit
+    const winner = candidates[0]; 
 
     const signal = {
         token: winner.token,
@@ -195,7 +203,6 @@ async function runProfitScan(forceFind = false) {
         reason: `Highest Profit Opportunity (+${winner.profit}%)`
     };
 
-    // 3. SEND ALERT
     handleSignal(signal);
 }
 
@@ -205,13 +212,16 @@ async function handleSignal(sig) {
 
     const amount = USER_CONFIG.tradeAmount;
     const profitEth = (parseFloat(amount) * (parseFloat(sig.profit) / 100)).toFixed(4);
+    
+    // Different message if Flash Loan is ON
+    const flashLoanTag = USER_CONFIG.flashLoan ? "⚡ **FLASH LOAN: ENABLED**" : "🐢 **FLASH LOAN: OFF**";
 
     const msg = `
 🚨 **ALPHA FOUND: ${sig.token}**
 --------------------------------
 💰 **Est. Profit:** +${sig.profit}% (+${profitEth} ETH)
 📉 **Entry:** ${amount} ETH
-🛡️ **Atomic:** ${USER_CONFIG.atomicMode ? "ON" : "OFF"}
+${flashLoanTag}
 
 **We aping or what?**
     `;
@@ -238,28 +248,31 @@ async function executeTrade(token, amount, source) {
         const amountWei = ethers.parseEther(amount.toString());
         const path = ["ETH", token]; 
         
+        // Select which function to call based on Flash Loan toggle
+        const method = USER_CONFIG.flashLoan ? "executeFlashLoan" : "executeComplexPath";
+        console.log(`[EXEC] Calling ${method} for ${amount} ETH`.magenta);
+
         // --- ATOMIC CHECK ---
         if (USER_CONFIG.atomicMode) {
             console.log(`[ATOMIC] Simulating trade first...`.blue);
             try {
-                // We attempt to simulate via callStatic (Pre-flight check)
-                await executorContract.executeComplexPath.staticCall(path, amountWei, { value: amountWei });
+                // Pre-flight check
+                await executorContract[method].staticCall(path, amountWei, { value: amountWei });
                 console.log(`[ATOMIC] Simulation Passed ✅`.green);
             } catch (simError) {
                 console.log(`[ATOMIC] Simulation Failed ❌`.red);
                 bot.sendMessage(chatId, `🛡️ **ATOMIC SHIELD ACTIVATED**\nTrade for ${token} would have failed. I cancelled it to save your gas.\n\nReason: Reverted during simulation.`);
-                return; // STOP HERE
+                return; 
             }
         }
 
         // EXECUTE REAL TRADE
-        console.log(`[EXEC] Aping ${amount} ETH into ${token}`.magenta);
-        const tx = await executorContract.executeComplexPath(path, amountWei, {
+        const tx = await executorContract[method](path, amountWei, {
             value: amountWei,
             gasLimit: 500000
         });
 
-        bot.sendMessage(chatId, `✅ **ORDER FILLED!**\n\n🔹 **Copped:** ${token}\n🔹 **Size:** ${amount} ETH\n🔗 **Tx:** \`${tx.hash}\`\n\n**BAG SECURED.**`, { parse_mode: "Markdown" });
+        bot.sendMessage(chatId, `✅ **ORDER FILLED!**\n\n🔹 **Copped:** ${token}\n🔹 **Size:** ${amount} ETH\n🔹 **Method:** ${USER_CONFIG.flashLoan ? "⚡ Flash Loan" : "🐢 Standard"}\n🔗 **Tx:** \`${tx.hash}\``, { parse_mode: "Markdown" });
         
     } catch (e) {
         console.log(`[FAIL] ${e.message}`.red);

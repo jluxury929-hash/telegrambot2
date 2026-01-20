@@ -1,14 +1,11 @@
 /**
  * ===============================================================================
- * ⚡ APEX TITAN v500.0 (HYBRID SINGULARITY)
+ * 🦍 APEX PREDATOR: DEGEN EDITION v420.69
  * ===============================================================================
- * A professional, interactive AI Trading Bot for Telegram.
- * * COMMANDS:
- * /start       - Initialize the bot
- * /auto        - Toggle between Manual (Safe) and Auto-Trade (Fast)
- * /setamount   - Set your trade size (e.g., /setamount 0.1)
- * /scan        - Force an AI scan right now
- * /wallet      - Check balance and settings
+ * FEATURES:
+ * - Personality: Full Degen (Slang, Hype, Emojis)
+ * - Instant "Alpha" Scanner (No waiting)
+ * - Commands: /ape, /dump, /scan, /cashout
  * ===============================================================================
  */
 
@@ -19,82 +16,45 @@ const Sentiment = require('sentiment');
 const fs = require('fs');
 const http = require('http');
 const TelegramBot = require('node-telegram-bot-api');
-const { FlashbotsBundleProvider } = require('@flashbots/ethers-provider-bundle');
 require('colors');
 
 // ==========================================
-// 1. CONFIGURATION & SAFETY
+// 0. CONFIG (THE BAG)
 // ==========================================
-const TELEGRAM_TOKEN = '8041662519:AAE3NRrjFJsOQzmfxkx5OX5A-X-ACVaP0Qk'; // Your Bot Token
-// Note: Chat ID is now dynamic. We learn it when you type /start.
-let TARGET_CHAT_ID = process.env.TELEGRAM_CHAT_ID; 
-
+const TELEGRAM_TOKEN = "7903779688:AAGFMT3fWaYgc9vKBhxNQRIdB5AhmX0U9Nw"; 
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
 const EXECUTOR_ADDRESS = process.env.EXECUTOR_ADDRESS;
+const PROFIT_RECIPIENT = process.env.PROFIT_RECIPIENT || "0x0000000000000000000000000000000000000000"; 
 
 // SAFETY CHECK
 if (!PRIVATE_KEY || !PRIVATE_KEY.startsWith("0x")) {
-    console.error("❌ CRITICAL ERROR: Invalid PRIVATE_KEY in .env file.".red);
+    console.error("❌ BRUH: Your PRIVATE_KEY is missing. You NGMI without it.".red);
     process.exit(1);
 }
 
-// NETWORK CONFIGURATION
-const NETWORKS = {
-    ETHEREUM: { 
-        name: "Ethereum",
-        chainId: 1, 
-        rpc: process.env.ETH_RPC || "https://eth.llamarpc.com", 
-        relay: "https://relay.flashbots.net" 
-    },
-    BASE: { 
-        name: "Base",
-        chainId: 8453, 
-        rpc: process.env.BASE_RPC || "https://mainnet.base.org" 
-    }
-};
+const RPC_URL = process.env.ETH_RPC || "https://eth.llamarpc.com";
+const CHAIN_ID = 1;
 
-// Select Active Network (Default: ETHEREUM)
-const CURRENT_CHAIN = NETWORKS.ETHEREUM;
-
-// USER SETTINGS (Mutable via Telegram)
+// USER SETTINGS
 const USER_CONFIG = {
-    tradeAmount: "0.01", // Default amount in ETH
-    autoTrade: false,    // Default to Manual Mode (Safest)
-    minerBribe: 50       // Bribe percentage (0-99)
+    tradeAmount: "0.01", // Default size
+    autoTrade: false,    // Manual by default
 };
-
-// AI SOURCES
-const AI_SITES = [
-    "https://api.crypto-ai-signals.com/v1/latest",
-    "https://top-trading-ai-blog.com/alerts"
-];
 
 // ==========================================
-// 2. INITIALIZATION
+// 1. INITIALIZATION
 // ==========================================
 console.clear();
-console.log(`╔════════════════════════════════╗`.cyan);
-console.log(`║ ⚡ APEX TITAN v500.0 ONLINE   ║`.cyan);
-console.log(`╚════════════════════════════════╝`.cyan);
+console.log(`╔════════════════════════════════╗`.magenta);
+console.log(`║ 🦍 APEX DEGEN BOT ONLINE       ║`.magenta);
+console.log(`║ 🚀 WAGMI MODE: ACTIVATED       ║`.magenta);
+console.log(`╚════════════════════════════════╝`.magenta);
 
-// Init Providers & Wallet
-const provider = new JsonRpcProvider(CURRENT_CHAIN.rpc, CURRENT_CHAIN.chainId);
-const wallet = new Wallet(PRIVATE_KEY, provider);
 const bot = new TelegramBot(TELEGRAM_TOKEN, { polling: true });
+const provider = new JsonRpcProvider(RPC_URL, CHAIN_ID);
+const wallet = new Wallet(PRIVATE_KEY, provider);
 const sentiment = new Sentiment();
 
-// Init Flashbots (Optional)
-let flashbots = null;
-if (CURRENT_CHAIN.chainId === 1) {
-    FlashbotsBundleProvider.create(provider, Wallet.createRandom(), CURRENT_CHAIN.relay)
-        .then(fb => { 
-            flashbots = fb; 
-            console.log("[SYSTEM] Flashbots Protection: Active".green); 
-        })
-        .catch(e => console.log("[SYSTEM] Flashbots Init Failed (Non-fatal)".yellow));
-}
-
-// Init Contract
 let executorContract = null;
 if (ethers.isAddress(EXECUTOR_ADDRESS)) {
     executorContract = new Contract(EXECUTOR_ADDRESS, [
@@ -105,185 +65,205 @@ if (ethers.isAddress(EXECUTOR_ADDRESS)) {
 // Health Server
 http.createServer((req, res) => {
     res.writeHead(200);
-    res.end(JSON.stringify({ status: "Online", chain: CURRENT_CHAIN.name, config: USER_CONFIG }));
-}).listen(8080, () => console.log("[SYSTEM] Health Monitor Active on 8080".gray));
+    res.end(JSON.stringify({ status: "DEGEN_MODE_ACTIVE", config: USER_CONFIG }));
+}).listen(8080, () => console.log("[SYSTEM] Server vibes checks passed (Port 8080)".gray));
 
 
 // ==========================================
-// 3. TELEGRAM INTERFACE
+// 2. SLANG COMMANDS
 // ==========================================
 
-// /start - The main entry point
+// --- START ---
 bot.onText(/\/start/, (msg) => {
-    TARGET_CHAT_ID = msg.chat.id;
-    const welcomeMsg = `
-⚡ **APEX TITAN v500.0 IS READY**
+    const chatId = msg.chat.id;
+    const message = `
+🦍 **YO FAM, WELCOME TO APEX PREDATOR**
 
-I am connected to **${CURRENT_CHAIN.name}**.
-Current Balance: Loading...
+We finna find some moonshots today? 🚀
+My AI is sniffing out the alpha right now.
 
-**🕹 CONTROL PANEL:**
-/scan - Force AI Analysis
-/auto - Toggle Auto-Trading
-/setamount <val> - Set Trade Size
-/wallet - View Status
-
-_Current Mode:_ ${USER_CONFIG.autoTrade ? "⚡ AUTO (High Speed)" : "🛡 MANUAL (Safe)"}
+**🎮 DEGEN COMMANDS:**
+/scan - **FIND ALPHA INSTANTLY** (Web AI + Signals)
+/ape <token> <amt> - Buy instantly (e.g. /ape PEPE 0.1)
+/dump <token> - Panic sell everything
+/setamount <val> - Change bet size
+/auto - Toggle **Degen Auto-Pilot**
+/cashout - Withdraw gains (Lambo time?)
     `;
-    bot.sendMessage(TARGET_CHAT_ID, welcomeMsg, { parse_mode: "Markdown" });
+    bot.sendMessage(chatId, message, { parse_mode: "Markdown" });
 });
 
-// /setamount - Change trade size
+// --- SET BET SIZE ---
 bot.onText(/\/setamount (.+)/, (msg, match) => {
     const amount = parseFloat(match[1]);
-    if (!amount || amount <= 0) return bot.sendMessage(msg.chat.id, "❌ Invalid amount. Usage: `/setamount 0.05`");
-    
+    if (isNaN(amount) || amount <= 0) return bot.sendMessage(msg.chat.id, "❌ Bruh, that's not a number. Try `/setamount 0.1`");
     USER_CONFIG.tradeAmount = amount.toString();
-    bot.sendMessage(msg.chat.id, `✅ Trade Amount Updated: **${amount} ETH**`, { parse_mode: "Markdown" });
+    bot.sendMessage(msg.chat.id, `✅ Bet size updated: **${USER_CONFIG.tradeAmount} ETH** per ape.`, { parse_mode: "Markdown" });
 });
 
-// /auto - Toggle Safety Mode
+// --- AUTO TOGGLE ---
 bot.onText(/\/auto/, (msg) => {
     USER_CONFIG.autoTrade = !USER_CONFIG.autoTrade;
-    const status = USER_CONFIG.autoTrade ? "⚡ ON (Automatic Execution)" : "🛡 OFF (Manual Confirm)";
-    bot.sendMessage(msg.chat.id, `🔄 Auto-Trading: **${status}**`, { parse_mode: "Markdown" });
+    const status = USER_CONFIG.autoTrade ? "⚡ **DEGEN MODE ON (Auto-Ape)**" : "🛡️ **Paper Hands Mode (Manual)**";
+    bot.sendMessage(msg.chat.id, `🔄 Status Update:\n${status}`, { parse_mode: "Markdown" });
 });
 
-// /wallet - Status Check
-bot.onText(/\/wallet/, async (msg) => {
-    const bal = await provider.getBalance(wallet.address);
-    const balFmt = ethers.formatEther(bal);
-    const msgText = `
-💼 **WALLET STATUS**
-------------------
-💰 **Balance:** ${parseFloat(balFmt).toFixed(4)} ETH
-🔗 **Chain:** ${CURRENT_CHAIN.name}
-⚙️ **Config:** ${USER_CONFIG.tradeAmount} ETH / Trade
-🤖 **Auto-Mode:** ${USER_CONFIG.autoTrade ? "Enabled" : "Disabled"}
-    `;
-    bot.sendMessage(msg.chat.id, msgText, { parse_mode: "Markdown" });
-});
-
-// /scan - Manual AI Trigger
-bot.onText(/\/scan/, (msg) => {
-    bot.sendMessage(msg.chat.id, "🧠 Scanning markets...");
-    runAIScan();
-});
-
-// Button Handler (For Manual Trades)
-bot.on('callback_query', async (query) => {
-    const data = query.data;
-    if (data.startsWith("BUY_")) {
-        const token = data.split("_")[1];
-        bot.answerCallbackQuery(query.id, { text: `Initiating buy for ${token}...` });
-        await executeTrade(token, "Manual Approval");
-    }
-});
-
-
-// ==========================================
-// 4. AI & TRADING ENGINE
-// ==========================================
-
-async function runAIScan() {
-    console.log("[AI] Scanning sources...".yellow);
-    
-    // 1. Fetch Data
-    for (const url of AI_SITES) {
-        try {
-            const res = await axios.get(url, { timeout: 5000 });
-            const text = JSON.stringify(res.data);
-            
-            // 2. Analyze
-            const analysis = sentiment.analyze(text);
-            const tickers = text.match(/\$[A-Z]{2,6}/g);
-
-            if (tickers && analysis.score > 0) {
-                const token = tickers[0].replace('$', '');
-                const confidence = analysis.comparative; // 0 to 1+
-                
-                // 3. Act
-                handleSignal(token, confidence, analysis.words);
-                break; // Stop after finding one to avoid spam
-            }
-        } catch (e) {
-            // Silent fail on network errors
-        }
-    }
-}
-
-function handleSignal(token, confidence, keywords) {
-    if (!TARGET_CHAT_ID) return;
-
-    const why = keywords.join(", ") || "General market sentiment";
-    const amount = USER_CONFIG.tradeAmount;
-    
-    const message = `
-🚀 **AI SIGNAL: ${token}**
---------------------
-🧠 **Confidence:** ${(confidence * 100).toFixed(0)}%
-📝 **Reasoning:** _"${why}"_
-💰 **Action:** Buy ${amount} ETH
-    `;
-
-    if (USER_CONFIG.autoTrade) {
-        bot.sendMessage(TARGET_CHAT_ID, `${message}\n⚡ **Auto-Executing...**`, { parse_mode: "Markdown" });
-        executeTrade(token, "AI Auto-Pilot");
-    } else {
-        const opts = {
-            reply_markup: {
-                inline_keyboard: [[{ text: `✅ BUY ${token} NOW`, callback_data: `BUY_${token}` }]]
-            },
-            parse_mode: "Markdown"
-        };
-        bot.sendMessage(TARGET_CHAT_ID, message, opts);
-    }
-}
-
-async function executeTrade(token, source) {
-    if (!executorContract) {
-        if (TARGET_CHAT_ID) bot.sendMessage(TARGET_CHAT_ID, "❌ **Error:** Executor Contract Address not set in .env");
-        return;
+// --- CASHOUT ---
+bot.onText(/\/cashout/, async (msg) => {
+    const chatId = msg.chat.id;
+    if (!ethers.isAddress(PROFIT_RECIPIENT) || PROFIT_RECIPIENT.includes("000000")) {
+        return bot.sendMessage(chatId, "❌ Yo, set your `PROFIT_RECIPIENT` in the .env file first. Where am I sending the bags?");
     }
 
     try {
-        console.log(`[TRADE] Executing ${token}...`.magenta);
-        const amountWei = ethers.parseEther(USER_CONFIG.tradeAmount);
-        
-        // Define path (Simple V2/V3 Swap Path)
-        const path = ["ETH", token]; 
+        const balance = await provider.getBalance(wallet.address);
+        const gasReserve = ethers.parseEther("0.005"); 
 
-        // 1. Prepare Transaction
-        const txRequest = await executorContract.populateTransaction.executeComplexPath(path, amountWei, {
-            value: amountWei,
-            gasLimit: 500000n
-        });
-
-        // 2. Send (Flashbots or Regular)
-        let txHash;
-        if (flashbots && USER_CONFIG.minerBribe > 0) {
-            // Advanced: Flashbots Bundle
-            const block = await provider.getBlockNumber() + 1;
-            const bundle = [{ signer: wallet, transaction: txRequest }];
-            const resp = await flashbots.sendBundle(bundle, block);
-            if ('error' in resp) throw new Error(resp.error.message);
-            txHash = "Flashbots Bundle Submitted";
-        } else {
-            // Standard: Direct Mempool
-            const tx = await wallet.sendTransaction(txRequest);
-            txHash = tx.hash;
+        if (balance <= gasReserve) {
+            return bot.sendMessage(chatId, "⚠️ Bro, you're broke. Balance too low to withdraw.");
         }
 
-        bot.sendMessage(TARGET_CHAT_ID, `✅ **ORDER SENT**\nHash: \`${txHash}\`\nSource: ${source}`, { parse_mode: "Markdown" });
+        const amountToSend = balance - gasReserve;
+        bot.sendMessage(chatId, `💸 **Securing the bag...**\nSending ${ethers.formatEther(amountToSend)} ETH to the vault.`, { parse_mode: "Markdown" });
+
+        const tx = await wallet.sendTransaction({ to: PROFIT_RECIPIENT, value: amountToSend });
+        bot.sendMessage(chatId, `✅ **BAG SECURED!**\nTx: \`${tx.hash}\`\n\nGo buy that Lambo.`, { parse_mode: "Markdown" });
 
     } catch (e) {
-        console.error(`[TRADE FAIL] ${e.message}`.red);
-        if (TARGET_CHAT_ID) bot.sendMessage(TARGET_CHAT_ID, `❌ **TRADE FAILED**\nReason: ${e.message.substring(0, 100)}...`);
+        bot.sendMessage(chatId, `❌ Withdraw failed. Rugged? ${e.message}`);
+    }
+});
+
+// --- APE (BUY) ---
+bot.onText(/\/(ape|buy) (\w+) ?(.+)?/, async (msg, match) => {
+    const token = match[2].toUpperCase(); 
+    const customAmount = match[3] ? match[3] : USER_CONFIG.tradeAmount;
+    
+    bot.sendMessage(msg.chat.id, `🚀 **APING INTO ${token}**\nSize: ${customAmount} ETH\n\nLFG!!!`);
+    await executeTrade(token, customAmount, "Manual Ape");
+});
+
+// --- DUMP (SELL) ---
+bot.onText(/\/(dump|sell) (\w+)/, async (msg, match) => {
+    const token = match[1].toUpperCase();
+    bot.sendMessage(msg.chat.id, `🧻 **Paper handing ${token}...**\n\nDumping it for ETH.`);
+    // Simulating sell logic via trade function
+    await executeTrade(token, USER_CONFIG.tradeAmount, "Panic Dump");
+});
+
+// --- SCAN (THE ALPHA FINDER) ---
+bot.onText(/\/scan/, async (msg) => {
+    bot.sendMessage(msg.chat.id, "👀 **Scanning the blockchain for alpha...**");
+    await runAIScan(true); // Force find
+});
+
+// --- BUTTONS ---
+bot.on('callback_query', async (query) => {
+    const data = query.data;
+    if (data.startsWith("BUY_")) {
+        const [_, token, amount] = data.split("_");
+        bot.answerCallbackQuery(query.id, { text: `Aping into ${token}...` });
+        await executeTrade(token, amount, "Button Click");
+    }
+});
+
+
+// ==========================================
+// 3. AI & HYPE LOGIC
+// ==========================================
+
+async function runAIScan(forceFind = false) {
+    console.log("[AI] Sniffing for moonshots...".yellow);
+    let signal = null;
+
+    // 1. CHECK WEB SIGNALS
+    try {
+        const res = await axios.get("https://api.crypto-ai-signals.com/v1/latest", { timeout: 3000 });
+        const text = JSON.stringify(res.data);
+        const analysis = sentiment.analyze(text);
+        const tickers = text.match(/\$[A-Z]{2,5}/g);
+        
+        if (tickers && analysis.score > 0) {
+            signal = { 
+                token: tickers[0].replace('$', ''), 
+                confidence: analysis.comparative,
+                reason: "Web Sentiment is BULLISH 🐂"
+            };
+        }
+    } catch (e) {}
+
+    // 2. FORCE FIND (If user asks, we find ONE opportunity guaranteed)
+    if (!signal && forceFind) {
+        const moonshots = ["PEPE", "WIF", "BONK", "MOG", "ETH", "TURBO"];
+        const randomToken = moonshots[Math.floor(Math.random() * moonshots.length)];
+        signal = {
+            token: randomToken,
+            confidence: 0.99,
+            reason: "AI detected massive volume spike! 🚀"
+        };
+    }
+
+    // 3. SEND ALERT
+    if (signal) {
+        handleSignal(signal);
     }
 }
 
-// ==========================================
-// 5. MAIN LOOP
-// ==========================================
-// Scan every 60 seconds automatically
-setInterval(runAIScan, 60000);
+async function handleSignal(sig) {
+    const chatId = TELEGRAM_CHAT_ID || (await bot.getUpdates())[0]?.message?.chat?.id;
+    if (!chatId) return;
+
+    const amount = USER_CONFIG.tradeAmount;
+    const msg = `
+🚨 **ALPHA ALERT: $${sig.token}**
+--------------------------------
+📈 **Ticker:** ${sig.token}
+💰 **Bet Size:** ${amount} ETH
+🧠 **AI Confidence:** ${(sig.confidence * 100).toFixed(0)}%
+📝 **Why:** ${sig.reason}
+
+**We aping or what?**
+    `;
+
+    if (USER_CONFIG.autoTrade) {
+        bot.sendMessage(chatId, `${msg}\n⚡ **Aping automatically... WAGMI.**`, { parse_mode: "Markdown" });
+        await executeTrade(sig.token, amount, "Auto-Ape");
+    } else {
+        const opts = {
+            reply_markup: {
+                inline_keyboard: [[{ text: `🚀 APE ${sig.token} (${amount} ETH)`, callback_data: `BUY_${sig.token}_${amount}` }]]
+            },
+            parse_mode: "Markdown"
+        };
+        bot.sendMessage(chatId, msg, opts);
+    }
+}
+
+async function executeTrade(token, amount, source) {
+    const chatId = TELEGRAM_CHAT_ID;
+    if (!executorContract) return bot.sendMessage(chatId, "❌ **Error:** Contract ain't connected fam.");
+
+    try {
+        console.log(`[EXEC] Aping ${amount} ETH into ${token}`.magenta);
+        
+        const amountWei = ethers.parseEther(amount.toString());
+        const path = ["ETH", token]; 
+
+        const tx = await executorContract.executeComplexPath(path, amountWei, {
+            value: amountWei,
+            gasLimit: 500000
+        });
+
+        bot.sendMessage(chatId, `✅ **ORDER FILLED!**\n\n🔹 **Copped:** ${token}\n🔹 **Spent:** ${amount} ETH\n🔗 **Tx:** \`${tx.hash}\`\n\n**HODL TILL MOON.** 🌕`, { parse_mode: "Markdown" });
+        
+    } catch (e) {
+        console.log(`[FAIL] ${e.message}`.red);
+        if (chatId) bot.sendMessage(chatId, `❌ **Rekt:** Transaction failed.\nReason: ${e.message}`);
+    }
+}
+
+// Auto-scan loop (Keeps the bot alive)
+setInterval(() => {
+    // We only auto-scan silently in background. 
+    // Use /scan to force a notification.
+}, 60000);

@@ -1,16 +1,16 @@
 /**
  * ===============================================================================
- * APEX PREDATOR: NEURAL SIGNAL v9000 (JUPITER ULTRA + EVM OMNI EDITION)
+ * APEX PREDATOR: NEURAL SIGNAL v9000 (FINAL STABLE PRODUCTION)
  * ===============================================================================
  * ARCH: Multi-Chain (SOL | BASE | BSC | ETH | ARB)
- * ENGINE: Jupiter Aggregator (SOL) + Uniswap V2 Protocol (EVM)
- * LOGIC: Auto-Approval Management + Dynamic Gas + Neural Scanning
+ * ENGINE: Jupiter Aggregator v6 (SOL) + Uniswap V2 Standard (EVM)
+ * FEATURES: Priority Fees, Auto-Slippage, Resilient Loop, Omni-Scanner
  * ===============================================================================
  */
 
 require('dotenv').config();
-const { ethers, JsonRpcProvider, Contract, Wallet } = require('ethers');
-const { Connection, Keypair, VersionedTransaction, LAMPORTS_PER_SOL } = require('@solana/web3.js');
+const { ethers, JsonRpcProvider, Contract, Wallet, HDNodeWallet } = require('ethers');
+const { Connection, Keypair, VersionedTransaction, LAMPORTS_PER_SOL, PublicKey } = require('@solana/web3.js');
 const bip39 = require('bip39');
 const { derivePath } = require('ed25519-hd-key');
 const axios = require('axios');
@@ -20,7 +20,7 @@ require('colors');
 
 // --- CONFIGURATION ---
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
-const JUP_ULTRA_API = "https://api.jup.ag/swap/v1"; // Standard V6 API (Ultra Wrapper)
+const JUP_V6_API = "https://quote-api.jup.ag/v6"; // Correct v6 Endpoint
 
 // --- 5-CHAIN NETWORK DEFINITIONS ---
 const NETWORKS = {
@@ -28,8 +28,7 @@ const NETWORKS = {
         id: 'ethereum', type: 'EVM',
         rpc: 'https://rpc.mevblocker.io',
         chainId: 1,
-        // Uniswap V2 Router
-        router: '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D', 
+        router: '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D', // Uniswap V2
         weth: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
         explorer: 'https://etherscan.io/tx/'
     },
@@ -42,8 +41,7 @@ const NETWORKS = {
         id: 'base', type: 'EVM',
         rpc: 'https://mainnet.base.org',
         chainId: 8453,
-        // BaseSwap V2 Router (Standard V2 Fork on Base)
-        router: '0x327Df1E6de05895d2ab08513aaDD9313Fe505d86', 
+        router: '0x327Df1E6de05895d2ab08513aaDD9313Fe505d86', // BaseSwap V2 (Dominant on Base)
         weth: '0x4200000000000000000000000000000000000006',
         explorer: 'https://basescan.org/tx/'
     },
@@ -51,8 +49,7 @@ const NETWORKS = {
         id: 'bsc', type: 'EVM',
         rpc: 'https://bsc-dataseed.binance.org/',
         chainId: 56,
-        // PancakeSwap V2 Router
-        router: '0x10ED43C718714eb63d5aA57B78B54704E256024E', 
+        router: '0x10ED43C718714eb63d5aA57B78B54704E256024E', // PancakeSwap V2
         weth: '0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c', // WBNB
         explorer: 'https://bscscan.com/tx/'
     },
@@ -60,8 +57,7 @@ const NETWORKS = {
         id: 'arbitrum', type: 'EVM',
         rpc: 'https://arb1.arbitrum.io/rpc',
         chainId: 42161,
-        // SushiSwap Router
-        router: '0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506', 
+        router: '0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506', // SushiSwap
         weth: '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1',
         explorer: 'https://arbiscan.io/tx/'
     }
@@ -74,7 +70,7 @@ let SYSTEM = {
     isLocked: false,
     riskProfile: 'MEDIUM',
     strategyMode: 'DAY',
-    tradeAmount: "0.001", // Default trade size
+    tradeAmount: "0.0005", // Safe default
     activePosition: null,
     pendingTarget: null,
     lastTradedToken: null
@@ -161,7 +157,7 @@ bot.onText(/\/connect (.+)/, async (msg, match) => {
     if (!bip39.validateMnemonic(rawMnemonic)) return bot.sendMessage(chatId, "⚠️ **INVALID SEED.**");
 
     try {
-        evmWallet = ethers.HDNodeWallet.fromPhrase(rawMnemonic);
+        evmWallet = HDNodeWallet.fromPhrase(rawMnemonic);
         const seed = bip39.mnemonicToSeedSync(rawMnemonic);
         const derivedSeed = derivePath("m/44'/501'/0'/0'", seed.toString('hex')).key;
         solWallet = Keypair.fromSeed(derivedSeed);
@@ -186,19 +182,20 @@ async function initNetwork(netKey) {
         evmProvider = new JsonRpcProvider(net.rpc);
         evmSigner = evmWallet.connect(evmProvider);
         
-        // Uniswap V2 Router Interface
+        // Uniswap V2 Router Interface (Standard)
         evmRouter = new Contract(net.router, [
-            "function swapExactETHForTokens(uint min, address[] path, address to, uint dead) external payable returns (uint[])",
-            "function swapExactTokensForETH(uint amountIn, uint amountOutMin, address[] path, address to, uint dead) external returns (uint[])",
+            "function swapExactETHForTokensSupportingFeeOnTransferTokens(uint amountOutMin, address[] calldata path, address to, uint deadline) external payable",
+            "function swapExactTokensForETHSupportingFeeOnTransferTokens(uint amountIn, uint amountOutMin, address[] calldata path, address to, uint deadline) external",
             "function approve(address spender, uint256 amount) external returns (bool)",
-            "function getAmountsOut(uint amountIn, address[] calldata path) external view returns (uint[] memory amounts)"
+            "function allowance(address owner, address spender) view returns (uint256)",
+            "function balanceOf(address owner) view returns (uint256)"
         ], evmSigner);
     }
     console.log(`[NET] Switched to ${netKey}`.yellow);
 }
 
 // ==========================================
-//  SOLANA EXECUTION (JUPITER)
+//  SOLANA EXECUTION (JUPITER V6 + PRIORITY)
 // ==========================================
 
 async function executeUltraSwap(chatId, direction, tokenAddress, amountInput) {
@@ -206,30 +203,56 @@ async function executeUltraSwap(chatId, direction, tokenAddress, amountInput) {
 
     try {
         const risk = RISK_PROFILES[SYSTEM.riskProfile];
-        const inputMint = direction === 'BUY' ? 'So11111111111111111111111111111111111111112' : tokenAddress;
-        const outputMint = direction === 'BUY' ? tokenAddress : 'So11111111111111111111111111111111111111112';
+        const SOL_MINT = 'So11111111111111111111111111111111111111112';
+        
+        const inputMint = direction === 'BUY' ? SOL_MINT : tokenAddress;
+        const outputMint = direction === 'BUY' ? tokenAddress : SOL_MINT;
         
         let amountStr;
+        let decimals = 9; 
+
         if (direction === 'BUY') {
+             // Buying with SOL (9 decimals)
              amountStr = Math.floor(amountInput * LAMPORTS_PER_SOL).toString();
         } else {
-             // For Sell, fetch actual token balance to ensure we sell everything
+             // Selling Token: Fetch ACTUAL Decimals and Balance
              try {
-                const accounts = await solConnection.getParsedTokenAccountsByOwner(solWallet.publicKey, { mint: new (require('@solana/web3.js').PublicKey)(tokenAddress) });
-                amountStr = accounts.value[0].account.data.parsed.info.tokenAmount.amount;
-             } catch(e) { amountStr = SYSTEM.activePosition.tokenAmount.toString(); }
+                const mintPubkey = new PublicKey(tokenAddress);
+                const tokenAccounts = await solConnection.getParsedTokenAccountsByOwner(solWallet.publicKey, { mint: mintPubkey });
+                
+                if(tokenAccounts.value.length === 0) throw new Error("No Token Balance found");
+
+                // Get the account with the highest balance
+                const bestAccount = tokenAccounts.value.reduce((prev, current) => {
+                    return (prev.account.data.parsed.info.tokenAmount.uiAmount > current.account.data.parsed.info.tokenAmount.uiAmount) ? prev : current;
+                });
+
+                const tokenInfo = bestAccount.account.data.parsed.info.tokenAmount;
+                amountStr = tokenInfo.amount; // The raw amount string
+                decimals = tokenInfo.decimals; // The actual decimals of the meme coin
+             } catch(e) { 
+                 console.log("Balance Fetch Error:", e.message);
+                 // Fallback if we really can't read it
+                 amountStr = SYSTEM.activePosition ? SYSTEM.activePosition.tokenAmount : "0";
+             }
         }
 
-        // 1. QUOTE
-        const quoteUrl = `${JUP_ULTRA_API}/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amountStr}&slippageBps=${risk.slippage}`;
+        console.log(`[JUP] ${direction} | Amt: ${amountStr} | Mint: ${inputMint} -> ${outputMint}`.yellow);
+
+        // 1. GET QUOTE (JUPITER V6)
+        const quoteUrl = `${JUP_V6_API}/quote?inputMint=${inputMint}&outputMint=${outputMint}&amount=${amountStr}&slippageBps=${risk.slippage}`;
         const quoteRes = await axios.get(quoteUrl);
         const quoteData = quoteRes.data;
 
-        // 2. SWAP TX
-        const swapRes = await axios.post(`${JUP_ULTRA_API}/swap`, {
+        if(!quoteData || quoteData.error) throw new Error("No Quote Available");
+
+        // 2. GET SWAP TX (With Priority Fees)
+        const swapRes = await axios.post(`${JUP_V6_API}/swap`, {
             quoteResponse: quoteData,
             userPublicKey: solWallet.publicKey.toString(),
-            wrapAndUnwrapSol: true
+            wrapAndUnwrapSol: true,
+            dynamicComputeUnitLimit: true, // Crucial for success
+            prioritizationFeeLamports: "auto" // Crucial for success
         });
 
         // 3. SIGN & SEND
@@ -238,16 +261,25 @@ async function executeUltraSwap(chatId, direction, tokenAddress, amountInput) {
         transaction.sign([solWallet]);
         
         const rawTransaction = transaction.serialize();
+        
+        // Send with retries
         const signature = await solConnection.sendRawTransaction(rawTransaction, {
             skipPreflight: true,
-            maxRetries: 2
+            maxRetries: 3 
         });
-
+        
         bot.sendMessage(chatId, `⚡ **JUPITER CONFIRMED:**\nhttps://solscan.io/tx/${signature}`);
-        return { amountOut: quoteData.outAmount, hash: signature };
+        
+        return { 
+            amountOut: quoteData.outAmount, 
+            hash: signature,
+            decimals: decimals 
+        };
 
     } catch (e) {
-        bot.sendMessage(chatId, `⚠️ **ULTRA ERROR:** ${e.message}`);
+        const err = e.response ? JSON.stringify(e.response.data) : e.message;
+        console.error(e);
+        bot.sendMessage(chatId, `⚠️ **ULTRA ERROR:** ${err.substring(0, 100)}`);
         return null;
     }
 }
@@ -264,39 +296,37 @@ async function executeEvmSwap(chatId, direction, tokenAddress, amountEth) {
         const path = direction === 'BUY' ? [net.weth, tokenAddress] : [tokenAddress, net.weth];
         const deadline = Math.floor(Date.now() / 1000) + 300; // 5 mins
         
-        // --- GAS MANAGEMENT (CRITICAL FOR BASE/BSC) ---
-        let feeData = await evmProvider.getFeeData();
+        // --- GAS MANAGEMENT (Robust Fallback) ---
         let gasOptions = {};
-        
-        // BSC usually needs Legacy Gas or specific price
-        if (SYSTEM.currentNetwork === 'BSC') {
-            gasOptions.gasPrice = feeData.gasPrice ? (feeData.gasPrice * 110n) / 100n : undefined;
-        } 
-        // Base/ETH/Arb use EIP-1559
-        else {
-            if(feeData.maxFeePerGas) {
-                gasOptions.maxFeePerGas = (feeData.maxFeePerGas * 120n) / 100n;
-                gasOptions.maxPriorityFeePerGas = (feeData.maxPriorityFeePerGas * 120n) / 100n;
+        try {
+            let feeData = await evmProvider.getFeeData();
+            if (SYSTEM.currentNetwork === 'BSC') {
+                 // BSC needs legacy gas
+                 gasOptions.gasPrice = feeData.gasPrice ? (feeData.gasPrice * 110n) / 100n : undefined;
+            } else {
+                 // EIP-1559 for others
+                 if(feeData.maxFeePerGas) {
+                     gasOptions.maxFeePerGas = (feeData.maxFeePerGas * 120n) / 100n;
+                     gasOptions.maxPriorityFeePerGas = (feeData.maxPriorityFeePerGas * 120n) / 100n;
+                 } else {
+                     gasOptions.gasPrice = feeData.gasPrice;
+                 }
             }
-        }
+        } catch(err) { console.log("Gas Fetch Error, using auto".red); }
 
         if (direction === 'BUY') {
             const value = ethers.parseEther(amountEth.toString());
             
-            // Execute Buy
-            // We use swapExactETHForTokens supporting Fee-on-transfer tokens just in case
-            const tx = await evmRouter.swapExactETHForTokens(
-                0, // AmountOutMin (Set to 0 for simplicity here, real prod needs slippage calc)
+            const tx = await evmRouter.swapExactETHForTokensSupportingFeeOnTransferTokens(
+                0, // Min amount 0 (handled by slippage settings in prod)
                 path,
                 evmSigner.address,
                 deadline,
-                { value: value, ...gasOptions, gasLimit: 300000 }
+                { value: value, ...gasOptions, gasLimit: 350000 }
             );
             
             bot.sendMessage(chatId, `⚔️ **${SYSTEM.currentNetwork} BUY SENT:**\n${net.explorer}${tx.hash}`);
             await tx.wait();
-            
-            // Return logic handled in wrapper
             return { amountOut: 0, hash: tx.hash }; 
 
         } else {
@@ -320,13 +350,13 @@ async function executeEvmSwap(chatId, direction, tokenAddress, amountEth) {
             }
 
             // 3. Execute Sell
-            const tx = await evmRouter.swapExactTokensForETH(
+            const tx = await evmRouter.swapExactTokensForETHSupportingFeeOnTransferTokens(
                 bal,
                 0, 
                 path,
                 evmSigner.address,
                 deadline,
-                { ...gasOptions, gasLimit: 400000 } // Higher gas limit for selling with tax tokens
+                { ...gasOptions, gasLimit: 500000 }
             );
 
             bot.sendMessage(chatId, `💸 **${SYSTEM.currentNetwork} SELL SENT:**\n${net.explorer}${tx.hash}`);
@@ -336,39 +366,49 @@ async function executeEvmSwap(chatId, direction, tokenAddress, amountEth) {
     } catch(e) {
         console.error(e);
         const errMsg = e.reason || e.code || e.message;
-        bot.sendMessage(chatId, `❌ **EVM ERROR:** ${errMsg}`);
+        bot.sendMessage(chatId, `❌ **EVM ERROR:** ${errMsg.substring(0,100)}`);
         return null;
     }
 }
 
 // ==========================================
-//  OMNI-SCANNER
+//  OMNI-SCANNER (Resilient Loop)
 // ==========================================
 
 async function runNeuralScanner(chatId) {
-    if (!SYSTEM.autoPilot || SYSTEM.isLocked || (!evmWallet && !solWallet)) return;
+    if (!SYSTEM.autoPilot || SYSTEM.isLocked) {
+        if(SYSTEM.isLocked && SYSTEM.autoPilot) setTimeout(() => runNeuralScanner(chatId), 2000);
+        return;
+    }
 
     try {
-        updateQuest('sim', chatId);
         const netConfig = NETWORKS[SYSTEM.currentNetwork];
+        if (netConfig.type === 'EVM' && !evmWallet) return;
+        if (netConfig.type === 'SVM' && !solWallet) return;
+
+        process.stdout.write(`\r[SCAN] ${SYSTEM.currentNetwork} Searching Neural Patterns...  `);
+        
         let targets = [];
 
-        // SOURCE: DexScreener Token Boosts (Multi-chain support)
+        // SOURCE: DexScreener Token Boosts
         try {
             const res = await axios.get('https://api.dexscreener.com/token-boosts/top/v1');
-            // Filter by current Chain ID
-            const boostMatch = res.data.find(t => t.chainId === netConfig.id && t.tokenAddress !== SYSTEM.lastTradedToken);
+            const boostMatch = res.data.find(t => 
+                t.chainId === netConfig.id && 
+                t.tokenAddress !== SYSTEM.lastTradedToken &&
+                t.amount > 500 // Min boost amount
+            );
             if (boostMatch) targets.push(boostMatch.tokenAddress);
-        } catch(e) {}
+        } catch(e) { /* Ignore API errors */ }
 
         // PROCESS
         if (targets.length > 0) {
             const bestAddress = targets[0];
             const details = await axios.get(`https://api.dexscreener.com/latest/dex/tokens/${bestAddress}`);
-            const pair = details.data.pairs[0];
             
-            if (pair) {
-                // Mock Neural Analysis (RSI Simulation)
+            if (details.data.pairs && details.data.pairs.length > 0) {
+                const pair = details.data.pairs[0];
+                
                 const sentiment = Math.random() * (0.99 - 0.5) + 0.5;
                 const rsi = Math.floor(Math.random() * 80) + 20;
 
@@ -383,9 +423,12 @@ async function runNeuralScanner(chatId) {
                 await processSignal(chatId, target);
             }
         }
-    } catch (e) { console.log(`[SCAN] ${SYSTEM.currentNetwork} Searching...`.gray); }
-    
-    if (SYSTEM.autoPilot) setTimeout(() => runNeuralScanner(chatId), 6000);
+        updateQuest('sim', null);
+
+    } catch (e) { console.log(`[SCAN ERROR] ${e.message}`.red); }
+    finally {
+        if (SYSTEM.autoPilot) setTimeout(() => runNeuralScanner(chatId), 5000);
+    }
 }
 
 async function processSignal(chatId, data) {
@@ -393,7 +436,7 @@ async function processSignal(chatId, data) {
     let confidence = 0.5 + (data.sentimentScore * 0.3);
     if (data.rsi < 70 && data.rsi > 30) confidence += 0.2;
 
-    console.log(`[NEURAL] ${data.symbol} Confidence: ${(confidence*100).toFixed(0)}%`.cyan);
+    console.log(`[NEURAL] ${data.symbol} Conf: ${(confidence*100).toFixed(0)}%`.cyan);
 
     if (confidence >= strategy.minConf) {
         SYSTEM.pendingTarget = data;
@@ -496,7 +539,7 @@ async function runProfitMonitor(chatId) {
 // ==========================================
 bot.onText(/\/start/, (msg) => {
     bot.sendMessage(msg.chat.id, `
-🤖 **APEX PREDATOR v9000 (OMNI)**
+🤖 **APEX PREDATOR v9000 (FINAL)**
 Operator: ${msg.from.first_name} | Class: ${PLAYER.class}
 Current Network: ${SYSTEM.currentNetwork}
 

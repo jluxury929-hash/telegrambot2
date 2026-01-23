@@ -4,7 +4,7 @@
  * ===============================================================================
  * ARCH: Multi-Chain (SOL | BASE | BSC | ETH | ARB)
  * ENGINE: Jupiter Aggregator v6 (SOL) + Uniswap V2 Standard (EVM)
- * FEATURES: Priority Fees, Auto-Slippage, Resilient Loop, Omni-Scanner
+ * FEATURES: Priority Fees, Auto-Slippage, Resilient Loop, Hybrid Scanner
  * ===============================================================================
  */
 
@@ -41,7 +41,7 @@ const NETWORKS = {
         id: 'base', type: 'EVM',
         rpc: 'https://mainnet.base.org',
         chainId: 8453,
-        router: '0x327Df1E6de05895d2ab08513aaDD9313Fe505d86', // BaseSwap V2 (Dominant on Base)
+        router: '0x327Df1E6de05895d2ab08513aaDD9313Fe505d86', // BaseSwap V2
         weth: '0x4200000000000000000000000000000000000006',
         explorer: 'https://basescan.org/tx/'
     },
@@ -232,7 +232,6 @@ async function executeUltraSwap(chatId, direction, tokenAddress, amountInput) {
                 decimals = tokenInfo.decimals; // The actual decimals of the meme coin
              } catch(e) { 
                  console.log("Balance Fetch Error:", e.message);
-                 // Fallback if we really can't read it
                  amountStr = SYSTEM.activePosition ? SYSTEM.activePosition.tokenAmount : "0";
              }
         }
@@ -372,7 +371,7 @@ async function executeEvmSwap(chatId, direction, tokenAddress, amountEth) {
 }
 
 // ==========================================
-//  OMNI-SCANNER (Resilient Loop)
+//  OMNI-SCANNER (HYBRID: VOLUME & BOOST)
 // ==========================================
 
 async function runNeuralScanner(chatId) {
@@ -390,16 +389,41 @@ async function runNeuralScanner(chatId) {
         
         let targets = [];
 
-        // SOURCE: DexScreener Token Boosts
-        try {
-            const res = await axios.get('https://api.dexscreener.com/token-boosts/top/v1');
-            const boostMatch = res.data.find(t => 
-                t.chainId === netConfig.id && 
-                t.tokenAddress !== SYSTEM.lastTradedToken &&
-                t.amount > 500 // Min boost amount
-            );
-            if (boostMatch) targets.push(boostMatch.tokenAddress);
-        } catch(e) { /* Ignore API errors */ }
+        // --- SOLANA STRATEGY: VOLUME SCAN ---
+        if (SYSTEM.currentNetwork === 'SOL') {
+            try {
+                // Search for "SOL" pairs to get high volume SOL-quoted tokens
+                // DexScreener search is limited to 30, so we get the top 30 most relevant
+                const res = await axios.get('https://api.dexscreener.com/latest/dex/search?q=SOL');
+                
+                const validPairs = res.data.pairs.filter(p => 
+                    p.chainId === 'solana' && 
+                    p.quoteToken.address === 'So11111111111111111111111111111111111111112' && // Must be quoted in SOL
+                    p.liquidity && p.liquidity.usd > 10000 && // Min $10k Liquidity
+                    p.baseToken.address !== SYSTEM.lastTradedToken
+                );
+
+                // Sort by 24H Volume (Highest First)
+                validPairs.sort((a, b) => b.volume.h24 - a.volume.h24);
+
+                if (validPairs.length > 0) {
+                    targets.push(validPairs[0].baseToken.address);
+                }
+            } catch(e) { /* Ignore */ }
+        } 
+        
+        // --- EVM STRATEGY: BOOST SCAN ---
+        else {
+            try {
+                const res = await axios.get('https://api.dexscreener.com/token-boosts/top/v1');
+                const boostMatch = res.data.find(t => 
+                    t.chainId === netConfig.id && 
+                    t.tokenAddress !== SYSTEM.lastTradedToken &&
+                    t.amount > 500
+                );
+                if (boostMatch) targets.push(boostMatch.tokenAddress);
+            } catch(e) { /* Ignore */ }
+        }
 
         // PROCESS
         if (targets.length > 0) {

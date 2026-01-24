@@ -4,7 +4,7 @@
  * ===============================================================================
  * FIX: Fully interactive buttons (Updates Risk/Mode/Amount via UI cycling).
  * FIX: SOL "Have 0" resolved via Multi-Path (Standard/Legacy) + Dual-RPC Failover.
- * FEATURES: /menu UI | CAD Balances | Parallel Multi-Chain Scanning.
+ * AUTO: Integrated 'startNetworkSniper' loop with Signal -> Verify -> execute.
  * ===============================================================================
  */
 
@@ -53,7 +53,7 @@ const getDashboardMarkup = () => ({
     reply_markup: {
         inline_keyboard: [
             [{ text: SYSTEM.autoPilot ? "🛑 STOP AUTO-PILOT" : "🚀 START AUTO-PILOT", callback_data: "cmd_auto" }],
-            [{ text: `💰 AMT: ${SYSTEM.tradeAmount}`, callback_data: "cmd_amt" }, { text: "📊 STATUS", callback_data: "cmd_status" }],
+            [{ text: `💰 AMT: ${SYSTEM.tradeAmount}`, callback_data: "cycle_amt" }, { text: "📊 STATUS", callback_data: "cmd_status" }],
             [{ text: `🛡️ RISK: ${SYSTEM.risk}`, callback_data: "cycle_risk" }, { text: `⏱️ TERM: ${SYSTEM.mode}`, callback_data: "cycle_mode" }],
             [{ text: "🔗 CONNECT WALLET", callback_data: "cmd_conn" }]
         ]
@@ -76,17 +76,23 @@ bot.on('callback_query', async (query) => {
         const modes = ['SHORT', 'MEDIUM', 'LONG'];
         SYSTEM.mode = modes[(modes.indexOf(SYSTEM.mode) + 1) % modes.length];
     }
+    if (query.data === "cycle_amt") {
+        const amts = ["0.01", "0.05", "0.1", "0.25", "0.5"];
+        SYSTEM.tradeAmount = amts[(amts.indexOf(SYSTEM.tradeAmount) + 1) % amts.length];
+    }
     if (query.data === "cmd_auto") {
         if (!solWallet) return bot.answerCallbackQuery(query.id, { text: "❌ Connect Wallet First!", show_alert: true });
         SYSTEM.autoPilot = !SYSTEM.autoPilot;
-        if (SYSTEM.autoPilot) Object.keys(NETWORKS).forEach(netKey => startNetworkSniper(chatId, netKey));
-        bot.sendMessage(chatId, `🤖 **AUTO-PILOT:** ${SYSTEM.autoPilot ? '✅ ACTIVE' : '❌ STOPPED'}`);
+        if (SYSTEM.autoPilot) {
+            bot.sendMessage(chatId, "🚀 **AUTO-PILOT ONLINE.** Scanning all networks...");
+            Object.keys(NETWORKS).forEach(netKey => startNetworkSniper(chatId, netKey));
+        } else {
+            bot.sendMessage(chatId, `🤖 **AUTO-PILOT:** ${SYSTEM.autoPilot ? '✅ ACTIVE' : '❌ STOPPED'}`);
+        }
     }
     if (query.data === "cmd_status") await runStatusDashboard(chatId);
-    if (query.data === "cmd_amt") bot.sendMessage(chatId, "⌨️ Use `/setamount 0.05` to update.");
     if (query.data === "cmd_conn") bot.sendMessage(chatId, "⌨️ Use `/connect <seed phrase>` to link.");
 
-    // Mandatory Answer + UI Update
     bot.editMessageReplyMarkup(getDashboardMarkup().reply_markup, { chat_id: chatId, message_id: msgId }).catch(() => {});
     bot.answerCallbackQuery(query.id);
 });
@@ -116,7 +122,7 @@ bot.onText(/\/connect (.+)/, async (msg, match) => {
             `🔗 **SYNC COMPLETE**\n\n` +
             `📍 **Bot Tracking:** \`${solWallet.publicKey.toString()}\`\n` +
             `💰 **Current Balance:** ${(Math.max(balA, balB) / 1e9).toFixed(4)} SOL\n\n` +
-            `*Address mismatch? Send 0.1 SOL to the address above.*`
+            `*If this balance looks wrong, move your 0.1 SOL to the address above.*`
         , { parse_mode: 'Markdown' });
     } catch (e) { bot.sendMessage(chatId, "❌ **SEED ERROR.**"); }
 });
@@ -126,81 +132,53 @@ async function verifyBalance(chatId, netKey) {
         const amt = parseFloat(SYSTEM.tradeAmount);
         if (netKey === 'SOL') {
             let bal = 0;
-            // Primary -> Fallback Failover
-            try { 
-                bal = await (new Connection(NETWORKS.SOL.primary)).getBalance(solWallet.publicKey); 
-            } catch (e) { 
-                bal = await (new Connection(NETWORKS.SOL.fallback)).getBalance(solWallet.publicKey); 
-            }
-            
-            const needed = (amt * LAMPORTS_PER_SOL) + 10000000; // BigInt math safety buffer
-            if (bal < needed) return false;
+            try { bal = await (new Connection(NETWORKS.SOL.primary)).getBalance(solWallet.publicKey); }
+            catch (e) { bal = await (new Connection(NETWORKS.SOL.fallback)).getBalance(solWallet.publicKey); }
+            const needed = (amt * LAMPORTS_PER_SOL) + 10000000; 
+            return bal >= needed;
         } else {
             const bal = await (new JsonRpcProvider(NETWORKS[netKey].rpc)).getBalance(evmWallet.address);
-            if (bal < ethers.parseEther(SYSTEM.tradeAmount) + ethers.parseEther("0.006")) return false;
+            return bal >= (ethers.parseEther(SYSTEM.tradeAmount) + ethers.parseEther("0.006"));
         }
-        return true;
     } catch (e) { return false; }
 }
 
 // ==========================================
-//  OMNI-CORE ENGINE
+//  OMNI-CORE ENGINE (FULL AUTO LOGIC)
 // ==========================================
 
-
-
-async function runStatusDashboard(chatId) {
-    let msg = `📊 **APEX OPERATIONAL STATUS**\n----------------------------\n`;
-    const RATES = { BNB: 1225.01, ETH: 4061.20, SOL: 175.14 }; 
-
-    for (const key of Object.keys(NETWORKS)) {
-        try {
-            if (key === 'SOL' && solWallet) {
-                const conn = new Connection(NETWORKS.SOL.primary, 'confirmed');
-                const bal = (await conn.getBalance(solWallet.publicKey)) / 1e9;
-                msg += `🔹 **SOL:** ${bal.toFixed(3)} ($${(bal * RATES.SOL).toFixed(2)} CAD)\n`;
-            } else if (evmWallet) {
-                const bal = parseFloat(ethers.formatEther(await new JsonRpcProvider(NETWORKS[key].rpc).getBalance(evmWallet.address)));
-                const cad = (bal * (key === 'BSC' ? RATES.BNB : RATES.ETH)).toFixed(2);
-                msg += `🔹 **${key}:** ${bal.toFixed(4)} ($${cad} CAD)\n`;
-            }
-        } catch (e) { msg += `🔹 **${key}:** ⚠️ RPC Lag\n`; }
-    }
-    bot.sendMessage(chatId, msg, { parse_mode: 'Markdown' });
-}
-
 async function startNetworkSniper(chatId, netKey) {
+    console.log(`[INIT] Parallel thread for ${netKey} active.`.magenta);
     while (SYSTEM.autoPilot) {
         try {
             if (!SYSTEM.isLocked[netKey]) {
                 const signal = await runNeuralSignalScan(netKey);
-                if (signal && await verifyBalance(chatId, netKey)) {
+                if (signal) {
+                    const ready = await verifyBalance(chatId, netKey);
+                    if (!ready) { 
+                        bot.sendMessage(chatId, `⚠️ **[${netKey}] SKIP:** Insufficient funds for trade.`);
+                        await new Promise(r => setTimeout(r, 30000)); 
+                        continue; 
+                    }
+
                     SYSTEM.isLocked[netKey] = true;
-                    const res = (netKey === 'SOL') 
+                    bot.sendMessage(chatId, `🧠 **[${netKey}] SIGNAL:** ${signal.symbol}. Engaging Sniper.`);
+                    
+                    const buyRes = (netKey === 'SOL') 
                         ? await executeSolShotgun(chatId, signal.tokenAddress, SYSTEM.tradeAmount) 
                         : await executeEvmContract(chatId, netKey, signal.tokenAddress, SYSTEM.tradeAmount);
                     
-                    if (res) startIndependentPeakMonitor(chatId, netKey, { ...signal, entryPrice: signal.price, amountOut: res.amountOut });
+                    if (buyRes) {
+                        const pos = { ...signal, entryPrice: signal.price, amountOut: buyRes.amountOut };
+                        startIndependentPeakMonitor(chatId, netKey, pos);
+                        bot.sendMessage(chatId, `🚀 **[${netKey}] BOUGHT ${signal.symbol}.** Rescanning...`);
+                    }
                     SYSTEM.isLocked[netKey] = false;
                 }
             }
-            await new Promise(r => setTimeout(r, 2000));
+            await new Promise(r => setTimeout(r, 2500));
         } catch (e) { SYSTEM.isLocked[netKey] = false; await new Promise(r => setTimeout(r, 5000)); }
     }
-}
-
-async function executeSolShotgun(chatId, addr, amt) {
-    try {
-        const res = await axios.get(`${JUP_ULTRA_API}/order?inputMint=So11111111111111111111111111111111111111112&outputMint=${addr}&amount=${Math.floor(amt * 1e9)}&taker=${solWallet.publicKey.toString()}&slippageBps=200`, SCAN_HEADERS);
-        const tx = VersionedTransaction.deserialize(Buffer.from(res.data.transaction, 'base64'));
-        tx.sign([solWallet]);
-        const sig = await Promise.any([
-            new Connection(NETWORKS.SOL.primary).sendRawTransaction(tx.serialize()), 
-            new Connection(NETWORKS.SOL.fallback).sendRawTransaction(tx.serialize())
-        ]);
-        bot.sendMessage(chatId, `⏳ **[SOL] PENDING:** ${sig}`);
-        return { amountOut: res.data.outAmount };
-    } catch (e) { return null; }
 }
 
 async function runNeuralSignalScan(netKey) {
@@ -211,7 +189,25 @@ async function runNeuralSignalScan(netKey) {
     } catch (e) { return null; }
 }
 
-async function executeEvmContract(chat_id, netKey, addr, amt) {
+// ==========================================
+//  EXECUTION & EXIT LOGIC
+// ==========================================
+
+async function executeSolShotgun(chatId, addr, amt) {
+    try {
+        const amtStr = Math.floor(amt * 1e9).toString();
+        const res = await axios.get(`${JUP_ULTRA_API}/order?inputMint=So11111111111111111111111111111111111111112&outputMint=${addr}&amount=${amtStr}&taker=${solWallet.publicKey.toString()}&slippageBps=200`, SCAN_HEADERS);
+        const tx = VersionedTransaction.deserialize(Buffer.from(res.data.transaction, 'base64'));
+        tx.sign([solWallet]);
+        const sig = await Promise.any([
+            new Connection(NETWORKS.SOL.primary).sendRawTransaction(tx.serialize()), 
+            new Connection(NETWORKS.SOL.fallback).sendRawTransaction(tx.serialize())
+        ]);
+        return { amountOut: res.data.outAmount, hash: sig };
+    } catch (e) { return null; }
+}
+
+async function executeEvmContract(chatId, netKey, addr, amt) {
     try {
         const net = NETWORKS[netKey];
         const signer = evmWallet.connect(new JsonRpcProvider(net.rpc));
@@ -235,15 +231,28 @@ async function startIndependentPeakMonitor(chatId, netKey, pos) {
         if (SYSTEM.risk === 'HIGH') { tp = 100; sl = -20; }
 
         if (pnl >= tp || pnl <= sl) {
-            bot.sendMessage(chatId, `📉 **[${netKey}] EXIT:** ${pnl.toFixed(2)}% PnL`);
-        } else { setTimeout(() => startIndependentPeakMonitor(chatId, netKey, pos), 5000); }
-    } catch (e) { setTimeout(() => startIndependentPeakMonitor(chatId, netKey, pos), 8000); }
+            bot.sendMessage(chatId, `📉 **[${netKey}] EXIT:** ${pos.symbol} closed at ${pnl.toFixed(2)}% PnL.`);
+            SYSTEM.lastTradedTokens[pos.tokenAddress] = true;
+        } else { setTimeout(() => startIndependentPeakMonitor(chatId, netKey, pos), 10000); }
+    } catch (e) { setTimeout(() => startIndependentPeakMonitor(chatId, netKey, pos), 15000); }
 }
 
-bot.onText(/\/setamount (.+)/, (msg, match) => {
-    SYSTEM.tradeAmount = match[1];
-    bot.sendMessage(msg.chat.id, `💰 **SIZE:** ${SYSTEM.tradeAmount} Native`);
-});
+async function runStatusDashboard(chatId) {
+    let msg = `📊 **APEX STATUS**\n----------------------------\n`;
+    const RATES = { BNB: 1225.01, ETH: 4061.20, SOL: 175.14 }; 
+    for (const key of Object.keys(NETWORKS)) {
+        try {
+            if (key === 'SOL' && solWallet) {
+                const bal = (await (new Connection(NETWORKS.SOL.primary)).getBalance(solWallet.publicKey)) / 1e9;
+                msg += `🔹 **SOL:** ${bal.toFixed(3)} ($${(bal * RATES.SOL).toFixed(2)} CAD)\n`;
+            } else if (evmWallet) {
+                const bal = parseFloat(ethers.formatEther(await new JsonRpcProvider(NETWORKS[netKey].rpc).getBalance(evmWallet.address)));
+                const cad = (bal * (key === 'BSC' ? RATES.BNB : RATES.ETH)).toFixed(2);
+                msg += `🔹 **${key}:** ${bal.toFixed(4)} ($${cad} CAD)\n`;
+            }
+        } catch (e) { msg += `🔹 **${key}:** ⚠️ Offline\n`; }
+    }
+    bot.sendMessage(chatId, msg, { parse_mode: 'Markdown' });
+}
 
 http.createServer((req, res) => res.end("APEX v9032 READY")).listen(8080);
-console.log("APEX v9032 READY".magenta);

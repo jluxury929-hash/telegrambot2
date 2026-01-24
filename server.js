@@ -4,7 +4,10 @@
  * ===============================================================================
  * FIX: Fully interactive buttons (Updates Risk/Mode/Amount via UI cycling).
  * FIX: SOL "Have 0" resolved via Multi-Path (Standard/Legacy) + Dual-RPC Failover.
+ * FIX: Universal Scanner Logic (Chain Mapping) + Symbol Safety Fallbacks.
+ * FIX: PnL Calculation Guard (Infinity% Protection).
  * AUTO: Integrated 'startNetworkSniper' loop with Signal -> Verify -> execute.
+ * MANUAL: Added /amount <val> override to set custom trade size instantly.
  * ===============================================================================
  */
 
@@ -105,7 +108,7 @@ bot.on('callback_query', async (query) => {
 bot.onText(/\/amount (.+)/, (msg, match) => {
     const newAmt = match[1].trim();
     if (isNaN(newAmt) || parseFloat(newAmt) <= 0) {
-        return bot.sendMessage(msg.chat.id, "❌ **INVALID AMOUNT.** Please enter a number (e.g., `/amount 0.08`)");
+        return bot.sendMessage(msg.chat.id, "❌ **INVALID AMOUNT.** Please enter a number (e.g., `/amount 0.08`) ");
     }
     SYSTEM.tradeAmount = newAmt;
     bot.sendMessage(msg.chat.id, `✅ **TRADE SIZE UPDATED:** \`${SYSTEM.tradeAmount}\``, { parse_mode: 'Markdown' });
@@ -152,7 +155,7 @@ async function verifyBalance(chatId, netKey) {
 }
 
 // ==========================================
-//  OMNI-CORE ENGINE (FULL AUTO LOGIC)
+//  OMNI-CORE ENGINE (SAFE SCANNER LOGIC)
 // ==========================================
 
 async function startNetworkSniper(chatId, netKey) {
@@ -161,7 +164,9 @@ async function startNetworkSniper(chatId, netKey) {
         try {
             if (!SYSTEM.isLocked[netKey]) {
                 const signal = await runNeuralSignalScan(netKey);
-                if (signal) {
+                
+                // VALIDATION: Ensure tokenAddress and valid signal data exist
+                if (signal && signal.tokenAddress) {
                     const ready = await verifyBalance(chatId, netKey);
                     if (!ready) {
                         bot.sendMessage(chatId, `⚠️ **[${netKey}] SKIP:** Insufficient funds for trade.`);
@@ -176,7 +181,7 @@ async function startNetworkSniper(chatId, netKey) {
                         ? await executeSolShotgun(chatId, signal.tokenAddress, SYSTEM.tradeAmount)
                         : await executeEvmContract(chatId, netKey, signal.tokenAddress, SYSTEM.tradeAmount);
                    
-                    if (buyRes) {
+                    if (buyRes && buyRes.amountOut) {
                         const pos = { ...signal, entryPrice: signal.price, amountOut: buyRes.amountOut };
                         startIndependentPeakMonitor(chatId, netKey, pos);
                         bot.sendMessage(chatId, `🚀 **[${netKey}] BOUGHT ${signal.symbol}.** Rescanning...`);
@@ -192,13 +197,26 @@ async function startNetworkSniper(chatId, netKey) {
 async function runNeuralSignalScan(netKey) {
     try {
         const res = await axios.get('https://api.dexscreener.com/token-boosts/latest/v1', SCAN_HEADERS);
-        const match = res.data.find(t => t.chainId === (netKey==='SOL'?'solana':NETWORKS[netKey].id) && !SYSTEM.lastTradedTokens[t.tokenAddress]);
-        return match ? { symbol: match.symbol, tokenAddress: match.tokenAddress, price: parseFloat(match.priceUsd || 0) } : null;
+        if (!res.data || !Array.isArray(res.data)) return null;
+
+        // UNIVERSAL SCANNER MAPPING: Map bot keys to official chain IDs
+        const chainMap = { 'SOL': 'solana', 'ETH': 'ethereum', 'BASE': 'base', 'BSC': 'bsc', 'ARB': 'arbitrum' };
+        const match = res.data.find(t => t.chainId === chainMap[netKey] && !SYSTEM.lastTradedTokens[t.tokenAddress]);
+        
+        // SAFETY FALLBACKS: Prevent 'undefined' crashes
+        if (match && match.tokenAddress) {
+            return { 
+                symbol: match.symbol || "UNKNOWN", 
+                tokenAddress: match.tokenAddress, 
+                price: parseFloat(match.priceUsd) || 0.00000001 // Prevent zero price errors
+            };
+        }
+        return null;
     } catch (e) { return null; }
 }
 
 // ==========================================
-//  EXECUTION & EXIT LOGIC
+//  EXECUTION & MONITORING (INFINITY PROTECTION)
 // ==========================================
 
 async function executeSolShotgun(chatId, addr, amt) {
@@ -211,7 +229,7 @@ async function executeSolShotgun(chatId, addr, amt) {
             new Connection(NETWORKS.SOL.primary).sendRawTransaction(tx.serialize()),
             new Connection(NETWORKS.SOL.fallback).sendRawTransaction(tx.serialize())
         ]);
-        return { amountOut: res.data.outAmount, hash: sig };
+        return { amountOut: res.data.outAmount || 1, hash: sig };
     } catch (e) { return null; }
 }
 
@@ -231,8 +249,13 @@ async function executeEvmContract(chatId, netKey, addr, amt) {
 async function startIndependentPeakMonitor(chatId, netKey, pos) {
     try {
         const res = await axios.get(`https://api.dexscreener.com/latest/dex/tokens/${pos.tokenAddress}`, SCAN_HEADERS);
-        const curPrice = parseFloat(res.data.pairs[0].priceUsd);
-        const pnl = ((curPrice - pos.entryPrice) / pos.entryPrice) * 100;
+        if (!res.data.pairs || res.data.pairs.length === 0) throw new Error("No pairs");
+
+        const curPrice = parseFloat(res.data.pairs[0].priceUsd) || 0;
+        
+        // PNL CALCULATION GUARD: Treat entryPrice as non-zero to prevent Infinity%
+        const entry = parseFloat(pos.entryPrice) || 0.00000001;
+        const pnl = ((curPrice - entry) / entry) * 100;
        
         let tp = 25; let sl = -10;
         if (SYSTEM.risk === 'LOW') { tp = 12; sl = -5; }

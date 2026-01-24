@@ -98,10 +98,18 @@ bot.on('callback_query', async (query) => {
 });
 
 // ==========================================
-//  THE "HAVE 0" FIX: MULTI-PATH & FAILOVER
+//  MANUAL OVERRIDES & CONNECTIONS
 // ==========================================
 
-
+// --- MANUAL AMOUNT OVERRIDE ---
+bot.onText(/\/amount (.+)/, (msg, match) => {
+    const newAmt = match[1].trim();
+    if (isNaN(newAmt) || parseFloat(newAmt) <= 0) {
+        return bot.sendMessage(msg.chat.id, "❌ **INVALID AMOUNT.** Please enter a number (e.g., `/amount 0.08`)");
+    }
+    SYSTEM.tradeAmount = newAmt;
+    bot.sendMessage(msg.chat.id, `✅ **TRADE SIZE UPDATED:** \`${SYSTEM.tradeAmount}\``, { parse_mode: 'Markdown' });
+});
 
 bot.onText(/\/connect (.+)/, async (msg, match) => {
     const raw = match[1].trim();
@@ -246,7 +254,7 @@ async function runStatusDashboard(chatId) {
                 const bal = (await (new Connection(NETWORKS.SOL.primary)).getBalance(solWallet.publicKey)) / 1e9;
                 msg += `🔹 **SOL:** ${bal.toFixed(3)} ($${(bal * RATES.SOL).toFixed(2)} CAD)\n`;
             } else if (evmWallet) {
-                const bal = parseFloat(ethers.formatEther(await new JsonRpcProvider(NETWORKS[netKey].rpc).getBalance(evmWallet.address)));
+                const bal = parseFloat(ethers.formatEther(await new JsonRpcProvider(NETWORKS[key].rpc).getBalance(evmWallet.address)));
                 const cad = (bal * (key === 'BSC' ? RATES.BNB : RATES.ETH)).toFixed(2);
                 msg += `🔹 **${key}:** ${bal.toFixed(4)} ($${cad} CAD)\n`;
             }
@@ -256,4 +264,3 @@ async function runStatusDashboard(chatId) {
 }
 
 http.createServer((req, res) => res.end("APEX v9032 READY")).listen(8080);
-

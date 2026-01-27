@@ -168,7 +168,6 @@ bot.onText(/\/connect (.+)/, async (msg, match) => {
         evmWallet = ethers.Wallet.fromPhrase(mnemonic);
         activeChatId = msg.chat.id;
         bot.sendMessage(msg.chat.id, `✅ <b>OMNI-SYNC SUCCESS</b>\n\n📍 SOL: <code>${solWallet.publicKey.toString()}</code>\n💰 BAL: <code>${(Math.max(balA,balB)/1e9).toFixed(4)} SOL</code>`, { parse_mode: 'HTML' });
-        setInterval(() => runMarketIntelligence(activeChatId), 60000);
     } catch (e) { bot.sendMessage(msg.chat.id, "❌ <b>SYNC FAILED</b>"); }
 });
 
@@ -223,7 +222,7 @@ async function executeAggressiveSolRotation(chatId, targetToken, symbol) {
             if (SYSTEM.atomicOn) {
                 const sim = await conn.simulateTransaction(tx);
                 if (sim.value.err) {
-                    bot.sendMessage(chatId, `🚫 <b>ATOMIC REVERT:</b> $${symbol} simulation failed. Saving gas.`, { parse_mode: 'HTML' });
+                    bot.sendMessage(chatId, `🚫 <b>ATOMIC REVERT:</b> $${symbol} simulation failed.`, { parse_mode: 'HTML' });
                     return false;
                 }
             }
@@ -259,14 +258,18 @@ async function runNeuralSignalScan(netKey) {
 
 function runStatusDashboard(chatId) {
     if (!solWallet) return;
-    bot.sendMessage(chatId, `📊 <b>OMNI STATUS</b>\n\n<b>ATOMIC:</b> ${SYSTEM.atomicOn ? 'ON' : 'OFF'}\n<b>AMT:</b> ${SYSTEM.tradeAmount}`, { parse_mode: 'HTML' });
+    bot.sendMessage(chatId, `📊 <b>OMNI STATUS</b>\n\n<b>MARKET:</b> ${SYSTEM.lastMarketState || '🟢 Low'}\n<b>ATOMIC:</b> ${SYSTEM.atomicOn ? 'ON' : 'OFF'}\n<b>AMT:</b> ${SYSTEM.tradeAmount}`, { parse_mode: 'HTML' });
 }
 
 http.createServer((req, res) => res.end("v9076 READY")).listen(8080);
 
-// --- 7. APPENDED COMMANDS & SECURITY (ZERO CODE CHANGE TO CORE) ---
+// --- 7. APPENDED STATUS PULSE (ZERO CODE CHANGE TO ORIGINAL) ---
 
-// MANUAL OVERRIDE: Update trade size via command
+bot.onText(/\/status/, (msg) => {
+    const marketIcon = SYSTEM.lastMarketState.includes('Dangerous') ? '🔴' : (SYSTEM.lastMarketState.includes('Profit') ? '💎' : '🟢');
+    bot.sendMessage(msg.chat.id, `🛰️ <b>LIVE INTEL REPORT</b>\n\n📈 <b>Pulse:</b> ${SYSTEM.lastMarketState || '🟢 Low'}\n🛡️ <b>Shields:</b> ${SYSTEM.atomicOn ? 'Atomic Active' : 'Unprotected'}\n⚡ <b>Liquidity:</b> ${SYSTEM.flashOn ? 'Flash Enabled' : 'Wallet Only'}\n💰 <b>Size:</b> ${SYSTEM.tradeAmount}\n\n<b>Recommendation:</b> ${marketIcon === '💎' ? 'Maximum Aggression' : 'Wait for Volume'}`, { parse_mode: 'HTML' });
+});
+
 bot.onText(/\/amount (.+)/, (msg, match) => {
     const value = match[1];
     if(!isNaN(value) && parseFloat(value) > 0) {
@@ -275,11 +278,8 @@ bot.onText(/\/amount (.+)/, (msg, match) => {
     }
 });
 
-// SEED SCRUBBER: Auto-delete the user's /connect seed message instantly
 bot.on('message', (msg) => {
     if (msg.text && msg.text.startsWith('/connect')) {
-        bot.deleteMessage(msg.chat.id, msg.message_id).catch(() => {
-            console.log("Failed to delete seed - Bot might lack Admin permissions.");
-        });
+        bot.deleteMessage(msg.chat.id, msg.message_id).catch(() => {});
     }
 });

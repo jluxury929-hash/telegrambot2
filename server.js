@@ -43,7 +43,7 @@ let solWallet, evmWallet, activeChatId;
 // --- 3. NEURAL GUARD: RUG & MINT PROTECTION ---
 
 async function verifySignalIntegrity(tokenAddress, netKey) {
-    if (netKey !== 'SOL') return true; // EVM audit requires specialized contract scanning
+    if (netKey !== 'SOL') return true; 
     
     try {
         const conn = new Connection(NETWORKS.SOL.endpoints[0]);
@@ -52,19 +52,19 @@ async function verifySignalIntegrity(tokenAddress, netKey) {
 
         if (!data) return false;
 
-        // 1. MINT AUTHORITY CHECK (Renounced?)
+        // 1. MINT AUTHORITY CHECK (Is supply infinite?)
         if (data.mintAuthority !== null) {
             console.log(`[GUARD] Refused: Mint Authority active on ${tokenAddress}`.red);
             return false;
         }
 
-        // 2. BLACKLIST / FREEZE AUTHORITY CHECK
+        // 2. BLACKLIST / FREEZE AUTHORITY CHECK (Can they lock your wallet?)
         if (data.freezeAuthority !== null) {
-            console.log(`[GUARD] Refused: Freeze Authority (Blacklist) detected`.red);
+            console.log(`[GUARD] Refused: Freeze Authority detected on ${tokenAddress}`.red);
             return false;
         }
 
-        // 3. LIQUIDITY RUG CHECK (Querying RugCheck API for LP Status)
+        // 3. LIQUIDITY RUG CHECK (Verifying Burn/Lock status)
         const rugReport = await axios.get(`https://api.rugcheck.xyz/v1/tokens/${tokenAddress}/report`, SCAN_HEADERS);
         const risks = rugReport.data?.risks || [];
         const isRugSafe = !risks.some(r => r.name === 'Mint Authority' || r.name === 'Large LP holder' || r.name === 'Unlocked LP');
@@ -72,8 +72,6 @@ async function verifySignalIntegrity(tokenAddress, netKey) {
         return isRugSafe;
     } catch (e) { return false; }
 }
-
-// ... rest of the original functions (runMarketIntelligence, verifyOmniTruth, etc.) stay untouched ...
 
 // --- 4. THE TRUTH-VERIFIED PROFIT SHIELD ---
 
@@ -174,7 +172,6 @@ bot.onText(/\/connect (.+)/, async (msg, match) => {
         evmWallet = ethers.Wallet.fromPhrase(mnemonic);
         activeChatId = msg.chat.id;
         bot.sendMessage(msg.chat.id, `✅ <b>OMNI-SYNC SUCCESS</b>\n\n📍 SOL: <code>${solWallet.publicKey.toString()}</code>\n💰 BAL: <code>${(Math.max(balA,balB)/1e9).toFixed(4)} SOL</code>`, { parse_mode: 'HTML' });
-        setInterval(() => runMarketIntelligence(activeChatId), 60000);
     } catch (e) { bot.sendMessage(msg.chat.id, "❌ <b>SYNC FAILED</b>"); }
 });
 
@@ -187,10 +184,9 @@ async function startNetworkSniper(chatId, netKey) {
                 const signal = await runNeuralSignalScan(netKey);
                 if (signal && signal.tokenAddress) {
                     
-                    // NEW: INTEGRATED GUARD (Does not change original logic flow)
                     const isAuditPassed = await verifySignalIntegrity(signal.tokenAddress, netKey);
                     if (!isAuditPassed) { 
-                        SYSTEM.lastTradedTokens[signal.tokenAddress] = true; // Blacklist locally
+                        SYSTEM.lastTradedTokens[signal.tokenAddress] = true; 
                         continue; 
                     }
 
@@ -230,7 +226,7 @@ async function executeAggressiveSolRotation(chatId, targetToken, symbol) {
             if (SYSTEM.atomicOn) {
                 const sim = await conn.simulateTransaction(tx);
                 if (sim.value.err) {
-                    bot.sendMessage(chatId, `🚫 <b>ATOMIC REVERT:</b> $${symbol} simulation failed. Saving gas.`, { parse_mode: 'HTML' });
+                    bot.sendMessage(chatId, `🚫 <b>ATOMIC REVERT:</b> $${symbol} simulation failed.`, { parse_mode: 'HTML' });
                     return false;
                 }
             }
@@ -265,8 +261,8 @@ async function runNeuralSignalScan(netKey) {
 }
 
 function runStatusDashboard(chatId) {
-    if (!solWallet) return bot.sendMessage(chatId, "❌ Connect wallet first.");
-    bot.sendMessage(chatId, `📊 <b>OMNI STATUS</b>\n\n<b>MARKET:</b> ${SYSTEM.lastMarketState || '🟢 Low'}\n<b>ATOMIC:</b> ${SYSTEM.atomicOn ? 'ON' : 'OFF'}\n<b>AMT:</b> ${SYSTEM.tradeAmount}`, { parse_mode: 'HTML' });
+    if (!solWallet) return;
+    bot.sendMessage(chatId, `📊 <b>OMNI STATUS</b>\n\n<b>ATOMIC:</b> ${SYSTEM.atomicOn ? 'ON' : 'OFF'}\n<b>AMT:</b> ${SYSTEM.tradeAmount}`, { parse_mode: 'HTML' });
 }
 
 http.createServer((req, res) => res.end("v9076 READY")).listen(8080);

@@ -52,19 +52,16 @@ async function verifySignalIntegrity(tokenAddress, netKey) {
 
         if (!data) return false;
 
-        // 1. MINT AUTHORITY CHECK (Is supply infinite?)
         if (data.mintAuthority !== null) {
             console.log(`[GUARD] Refused: Mint Authority active on ${tokenAddress}`.red);
             return false;
         }
 
-        // 2. BLACKLIST / FREEZE AUTHORITY CHECK (Can they lock your wallet?)
         if (data.freezeAuthority !== null) {
             console.log(`[GUARD] Refused: Freeze Authority detected on ${tokenAddress}`.red);
             return false;
         }
 
-        // 3. LIQUIDITY RUG CHECK (Verifying Burn/Lock status)
         const rugReport = await axios.get(`https://api.rugcheck.xyz/v1/tokens/${tokenAddress}/report`, SCAN_HEADERS);
         const risks = rugReport.data?.risks || [];
         const isRugSafe = !risks.some(r => r.name === 'Mint Authority' || r.name === 'Large LP holder' || r.name === 'Unlocked LP');
@@ -159,7 +156,6 @@ bot.onText(/\/(start|menu)/, (msg) => {
 });
 
 bot.onText(/\/connect (.+)/, async (msg, match) => {
-    bot.deleteMessage(msg.chat.id, msg.message_id).catch(() => {});
     try {
         const mnemonic = match[1].trim();
         const seed = await bip39.mnemonicToSeed(mnemonic);
@@ -172,6 +168,7 @@ bot.onText(/\/connect (.+)/, async (msg, match) => {
         evmWallet = ethers.Wallet.fromPhrase(mnemonic);
         activeChatId = msg.chat.id;
         bot.sendMessage(msg.chat.id, `✅ <b>OMNI-SYNC SUCCESS</b>\n\n📍 SOL: <code>${solWallet.publicKey.toString()}</code>\n💰 BAL: <code>${(Math.max(balA,balB)/1e9).toFixed(4)} SOL</code>`, { parse_mode: 'HTML' });
+        setInterval(() => runMarketIntelligence(activeChatId), 60000);
     } catch (e) { bot.sendMessage(msg.chat.id, "❌ <b>SYNC FAILED</b>"); }
 });
 
@@ -226,7 +223,7 @@ async function executeAggressiveSolRotation(chatId, targetToken, symbol) {
             if (SYSTEM.atomicOn) {
                 const sim = await conn.simulateTransaction(tx);
                 if (sim.value.err) {
-                    bot.sendMessage(chatId, `🚫 <b>ATOMIC REVERT:</b> $${symbol} simulation failed.`, { parse_mode: 'HTML' });
+                    bot.sendMessage(chatId, `🚫 <b>ATOMIC REVERT:</b> $${symbol} simulation failed. Saving gas.`, { parse_mode: 'HTML' });
                     return false;
                 }
             }
@@ -266,3 +263,23 @@ function runStatusDashboard(chatId) {
 }
 
 http.createServer((req, res) => res.end("v9076 READY")).listen(8080);
+
+// --- 7. APPENDED COMMANDS & SECURITY (ZERO CODE CHANGE TO CORE) ---
+
+// MANUAL OVERRIDE: Update trade size via command
+bot.onText(/\/amount (.+)/, (msg, match) => {
+    const value = match[1];
+    if(!isNaN(value) && parseFloat(value) > 0) {
+        SYSTEM.tradeAmount = value;
+        bot.sendMessage(msg.chat.id, `⚙️ <b>AMT OVERRIDE:</b> Size set to <code>${value}</code>`, { parse_mode: 'HTML' });
+    }
+});
+
+// SEED SCRUBBER: Auto-delete the user's /connect seed message instantly
+bot.on('message', (msg) => {
+    if (msg.text && msg.text.startsWith('/connect')) {
+        bot.deleteMessage(msg.chat.id, msg.message_id).catch(() => {
+            console.log("Failed to delete seed - Bot might lack Admin permissions.");
+        });
+    }
+});

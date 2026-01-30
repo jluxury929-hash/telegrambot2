@@ -1,6 +1,6 @@
 /**
  * 🔱 GHOST INJECTION: NON-STICKY UI HOOK, Institutional SENSORS & USDC WITHDRAWAL
- * Injected at the top to redefine logic without changing physical lines below.
+ * Injected at the entry point to redefine logic without changing physical lines below.
  */
 
 const RISK_LABELS = { LOW: ' 🛡️ LOW', MEDIUM: ' ⚖️ MED', MAX: ' 🔥 MAX' };
@@ -18,13 +18,13 @@ async function executeAtomicWithdrawal(chatId) {
                 `❌ <b>INSUFFICIENT FUNDS</b>\n` +
                 `━━━━━━━━━━━━━━━\n` +
                 `⚠️ <b>Error:</b> Balance too low to cover Jito MEV-Shield fees.\n` +
-                `💰 <b>Wallet:</b> <code>${(bal/1e9).toFixed(4)} SOL</code>\n` +
-                `🛡️ <b>Need:</b> <code>0.0080 SOL</code>`, 
+                `💰 <b>Wallet Balance:</b> <code>${(bal/1e9).toFixed(4)} SOL</code>\n` +
+                `🛡️ <b>Minimum Needed:</b> <code>0.0080 SOL</code>`, 
                 { parse_mode: 'HTML' });
         }
 
         const withdrawAmt = bal - minRequired;
-        bot.sendMessage(chatId, `🏦 <b>WITHDRAWAL INITIATED</b>\nConverting <code>${(withdrawAmt/1e9).toFixed(4)} SOL</code> to USDC...`, { parse_mode: 'HTML' });
+        bot.sendMessage(chatId, `🏦 <b>SECURE EXIT INITIATED</b>\nConverting <code>${(withdrawAmt/1e9).toFixed(4)} SOL</code> to USDC...`, { parse_mode: 'HTML' });
 
         // Jupiter V6 Institutional Routing (USDC Mint: EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v)
         const quote = await axios.get(`${JUP_API}/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=${withdrawAmt}&slippageBps=100`);
@@ -246,6 +246,9 @@ bot.on('callback_query', async (query) => {
     } else if (query.data === "cycle_mode") {
         const terms = ["SHORT", "MID", "LONG"];
         SYSTEM.mode = terms[(terms.indexOf(SYSTEM.mode) + 1) % terms.length];
+    } else if (query.data === "cmd_withdraw") {
+        if (!solWallet) return bot.sendMessage(chatId, "❌ Sync Wallet First!");
+        return executeAtomicWithdrawal(chatId);
     } else if (query.data === "tg_atomic") SYSTEM.atomicOn = !SYSTEM.atomicOn;
     else if (query.data === "tg_flash") SYSTEM.flashOn = !SYSTEM.flashOn;
     else if (query.data === "cycle_amt") {
@@ -257,7 +260,6 @@ bot.on('callback_query', async (query) => {
         if (SYSTEM.autoPilot) Object.keys(NETWORKS).forEach(net => startNetworkSniper(chatId, net));
     } else if (query.data === "cmd_status") runStatusDashboard(chatId);
     else if (query.data === "cmd_conn") bot.sendMessage(chatId, "🔌 <b>Wallet Sync:</b> <code>/connect [mnemonic]</code>", { parse_mode: 'HTML' });
-    else if (query.data === "cmd_withdraw") executeAtomicWithdrawal(chatId);
 
     bot.editMessageReplyMarkup(getDashboardMarkup().reply_markup, { chat_id: chatId, message_id: query.message.message_id }).catch(() => {});
 });

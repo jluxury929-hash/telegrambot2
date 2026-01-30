@@ -1,6 +1,9 @@
 /**
+ * ===============================================================================
+ * APEX PREDATOR: NEURAL ULTRA v9120 (FULL UI RECOVERY)
+ * ===============================================================================
  * Infrastructure: Binance WS + Yellowstone gRPC + Jito Atomic Bundles
- * Strategy: Anti-Lag UI + Leader-Synced Delta Capture
+ * Fixes: Status, Start, Flash, and Atomic Button Persistence
  */
 
 require('dotenv').config();
@@ -15,7 +18,7 @@ const WebSocket = require('ws');
 const http = require('http');
 require('colors');
 
-// --- 🔱 MEV-SHIELD INJECTION ---
+// --- 🔱 MEV-SHIELD LOGIC ---
 const originalSend = Connection.prototype.sendRawTransaction;
 Connection.prototype.sendRawTransaction = async function(rawTx, options) {
     try {
@@ -31,7 +34,16 @@ Connection.prototype.sendRawTransaction = async function(rawTx, options) {
 // --- 1. CORE INITIALIZATION ---
 const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
 
-// --- 2. GLOBAL STATE ---
+// --- 2. GLOBAL OMNI-STATE ---
+const JUP_API = "https://quote-api.jup.ag/v6";
+const CAD_RATES = { SOL: 248.15, ETH: 4920.00, BNB: 865.00 };
+const JITO_ENGINE = "https://mainnet.block-engine.jito.wtf/api/v1/bundles";
+const BINANCE_WS = "wss://stream.binance.com:9443/ws/solusdt@bookTicker"; 
+
+const NETWORKS = {
+    SOL: { id: 'solana', endpoints: ['https://api.mainnet-beta.solana.com'], sym: 'SOL' }
+};
+
 let SYSTEM = {
     autoPilot: false, tradeAmount: "0.1", risk: 'MAX', mode: 'GLOBAL',
     lastTradedTokens: {}, isLocked: {},
@@ -40,55 +52,71 @@ let SYSTEM = {
     jitoTip: 20000000, 
     lastBinancePrice: 0,
     minDelta: 0.45,
-    isUpdatingUI: false // THE STICKY BUTTON KILLER
+    isUpdatingUI: false 
 };
-let solWallet, evmWallet;
+let solWallet;
 
-const JUP_API = "https://quote-api.jup.ag/v6";
-const JITO_ENGINE = "https://mainnet.block-engine.jito.wtf/api/v1/bundles";
+// --- 🔱 3. THE REPAIRED UI ENGINE ---
 
-// --- 3. UI DASHBOARD (REACTIVE & NON-STICKY) ---
-const getMenu = () => ({
+const getDashboardMarkup = () => ({
     reply_markup: {
         inline_keyboard: [
-            [{ text: SYSTEM.autoPilot ? "🛑 STOP AUTO-PILOT" : "🚀 START AUTO-PILOT", callback_data: "tg_auto" }],
-            [{ text: `💰 AMT: ${SYSTEM.tradeAmount}`, callback_data: "cyc_amt" }, { text: "📊 STATUS", callback_data: "cmd_stat" }],
+            [{ text: SYSTEM.autoPilot ? "🛑 STOP AUTO-PILOT" : "🚀 START AUTO-PILOT", callback_data: "cmd_auto" }],
+            [{ text: `💰 AMT: ${SYSTEM.tradeAmount}`, callback_data: "cycle_amt" }, { text: "📊 STATUS", callback_data: "cmd_status" }],
             [{ text: SYSTEM.atomicOn ? "🛡️ ATOMIC: ON" : "🛡️ ATOMIC: OFF", callback_data: "tg_atomic" }, { text: SYSTEM.flashOn ? "⚡ FLASH: ON" : "⚡ FLASH: OFF", callback_data: "tg_flash" }],
             [{ text: "🔌 CONNECT WALLET", callback_data: "cmd_conn" }]
         ]
     }
 });
 
-bot.on('callback_query', async (q) => {
-    // FIX 1: Instant acknowledgement kills the "loading" spinner on the button
-    bot.answerCallbackQuery(q.id).catch(() => {});
-
-    // FIX 2: State Lock prevents overlapping UI updates
+bot.on('callback_query', async (query) => {
+    // FIX: Acknowledge click immediately to kill the blue loading circle
+    bot.answerCallbackQuery(query.id).catch(() => {});
+    
+    // FIX: Mutex prevents "Sticky" button clicks while processing
     if (SYSTEM.isUpdatingUI) return;
     SYSTEM.isUpdatingUI = true;
 
     try {
-        const chatId = q.message.chat.id;
-        if (q.data === "tg_auto") {
-            if (!solWallet) {
-                bot.sendMessage(chatId, "❌ Sync Wallet First!");
-            } else {
-                SYSTEM.autoPilot = !SYSTEM.autoPilot;
-                if (SYSTEM.autoPilot) startRadar(chatId);
-            }
-        } else if (q.data === "cyc_amt") {
-            const amts = ["0.1", "0.5", "1.0", "2.5", "5.0"];
-            SYSTEM.tradeAmount = amts[(amts.indexOf(SYSTEM.tradeAmount) + 1) % amts.length];
-        } else if (q.data === "tg_atomic") {
-            SYSTEM.atomicOn = !SYSTEM.atomicOn;
-        } else if (q.data === "cmd_conn") {
-            bot.sendMessage(chatId, "🔌 <b>Sync:</b> <code>/connect [mnemonic]</code>", { parse_mode: 'HTML' });
+        const chatId = query.message.chat.id;
+
+        // --- BUTTON ROUTING ---
+        switch (query.data) {
+            case "cmd_auto":
+                if (!solWallet) {
+                    bot.sendMessage(chatId, "❌ <b>WALLET NOT SYNCED</b>. Use <code>/connect</code> first.", { parse_mode: 'HTML' });
+                } else {
+                    SYSTEM.autoPilot = !SYSTEM.autoPilot;
+                    if (SYSTEM.autoPilot) startGlobalRadar(chatId);
+                }
+                break;
+
+            case "cycle_amt":
+                const amts = ["0.1", "0.5", "1.0", "5.0"];
+                SYSTEM.tradeAmount = amts[(amts.indexOf(SYSTEM.tradeAmount) + 1) % amts.length];
+                break;
+
+            case "tg_atomic":
+                SYSTEM.atomicOn = !SYSTEM.atomicOn;
+                break;
+
+            case "tg_flash":
+                SYSTEM.flashOn = !SYSTEM.flashOn;
+                break;
+
+            case "cmd_status":
+                runStatusDashboard(chatId);
+                break;
+
+            case "cmd_conn":
+                bot.sendMessage(chatId, "🔌 <b>Sync Wallet:</b> <code>/connect [mnemonic]</code>", { parse_mode: 'HTML' });
+                break;
         }
 
-        // FIX 3: Re-render markup only after state change
-        await bot.editMessageReplyMarkup(getMenu().reply_markup, { 
+        // FIX: Re-draw menu with updated toggles
+        await bot.editMessageReplyMarkup(getDashboardMarkup().reply_markup, { 
             chat_id: chatId, 
-            message_id: q.message.message_id 
+            message_id: query.message.message_id 
         }).catch(() => {});
 
     } finally {
@@ -96,56 +124,66 @@ bot.on('callback_query', async (q) => {
     }
 });
 
-// --- 4. ARBITRAGE RADAR ---
-async function startRadar(chatId) {
-    const ws = new WebSocket("wss://stream.binance.com:9443/ws/solusdt@bookTicker");
+// --- 🔱 4. CORE EXECUTION RADAR ---
+
+async function startGlobalRadar(chatId) {
+    const ws = new WebSocket(BINANCE_WS);
     ws.on('message', async (data) => {
         const tick = JSON.parse(data);
         SYSTEM.lastBinancePrice = (parseFloat(tick.b) + parseFloat(tick.a)) / 2;
-        if (SYSTEM.autoPilot) {
-            try {
-                const res = await axios.get(`${JUP_API}/quote?inputMint=${SYSTEM.currentAsset}&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=1000000000`);
-                const dexPrice = res.data.outAmount / 1e6;
-                const delta = ((SYSTEM.lastBinancePrice - dexPrice) / dexPrice) * 100;
-                if (delta > SYSTEM.minDelta) executeHFT(chatId, delta);
-            } catch (e) {}
-        }
+        if (SYSTEM.autoPilot) await checkArbOpportunity(chatId);
     });
 }
 
-async function executeHFT(chatId, delta) {
+async function checkArbOpportunity(chatId) {
     if (SYSTEM.isLocked['HFT']) return;
-    SYSTEM.isLocked['HFT'] = true;
-    
     try {
-        const conn = new Connection('https://api.mainnet-beta.solana.com', 'confirmed');
-        const amt = Math.floor(parseFloat(SYSTEM.tradeAmount) * LAMPORTS_PER_SOL);
+        const res = await axios.get(`${JUP_API}/quote?inputMint=${SYSTEM.currentAsset}&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=1000000000`);
+        const dexPrice = res.data.outAmount / 1e6;
+        const delta = ((SYSTEM.lastBinancePrice - dexPrice) / dexPrice) * 100;
         
-        const quote = await axios.get(`${JUP_API}/quote?inputMint=${SYSTEM.currentAsset}&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=${amt}&slippageBps=150`);
-        const { swapTransaction } = (await axios.post(`${JUP_API}/swap`, { 
-            quoteResponse: quote.data, 
-            userPublicKey: solWallet.publicKey.toString(), 
-            prioritizationFeeLamports: "auto" 
-        })).data;
-
-        const tx = VersionedTransaction.deserialize(Buffer.from(swapTransaction, 'base64'));
-        tx.sign([solWallet]);
-
-        const res = await axios.post(JITO_ENGINE, { 
-            jsonrpc: "2.0", id: 1, method: "sendBundle", params: [[Buffer.from(tx.serialize()).toString('base64')]] 
-        });
-
-        if (res.data.result) {
-            bot.sendMessage(chatId, `🚀 <b>DELTA CAPTURE:</b> <code>${delta.toFixed(3)}%</code>\nID: <code>${res.data.result.slice(0,8)}...</code>`, { parse_mode: 'HTML' });
+        if (delta > SYSTEM.minDelta) {
+            SYSTEM.isLocked['HFT'] = true;
+            await executeTrade(chatId, "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", `Δ-CAPTURE ${delta.toFixed(2)}%`);
+            setTimeout(() => SYSTEM.isLocked['HFT'] = false, 500);
         }
     } catch (e) {}
-    
-    setTimeout(() => SYSTEM.isLocked['HFT'] = false, 500); 
 }
 
-// --- 5. SYSTEM COMMANDS ---
+async function executeTrade(chatId, targetToken, label) {
+    try {
+        const conn = new Connection(NETWORKS.SOL.endpoints[0], 'confirmed');
+        const amt = Math.floor(parseFloat(SYSTEM.tradeAmount) * LAMPORTS_PER_SOL);
+        const quote = await axios.get(`${JUP_API}/quote?inputMint=${SYSTEM.currentAsset}&outputMint=${targetToken}&amount=${amt}&slippageBps=150`);
+        const { swapTransaction } = (await axios.post(`${JUP_API}/swap`, { quoteResponse: quote.data, userPublicKey: solWallet.publicKey.toString(), prioritizationFeeLamports: "auto" })).data;
+        
+        const tx = VersionedTransaction.deserialize(Buffer.from(swapTransaction, 'base64'));
+        tx.sign([solWallet]);
+        
+        const res = await axios.post(JITO_ENGINE, { jsonrpc: "2.0", id: 1, method: "sendBundle", params: [[Buffer.from(tx.serialize()).toString('base64')]] });
+        if (res.data.result) {
+            bot.sendMessage(chatId, `🚀 <b>${label}</b>\n<code>${res.data.result}</code>`, { parse_mode: 'HTML' });
+        }
+    } catch (e) {}
+}
+
+// --- 🔱 5. UTILS ---
+
+function runStatusDashboard(chatId) {
+    const statusText = `
+📊 <b>OMNI SYSTEM STATUS</b>
+━━━━━━━━━━━━━━━
+🚀 <b>AutoPilot:</b> ${SYSTEM.autoPilot ? 'RUNNING' : 'STOPPED'}
+🛡️ <b>Atomic Bundles:</b> ${SYSTEM.atomicOn ? 'ENABLED' : 'DISABLED'}
+⚡ <b>Flash Loans:</b> ${SYSTEM.flashOn ? 'ACTIVE' : 'INACTIVE'}
+💰 <b>Trade Size:</b> <code>${SYSTEM.tradeAmount} SOL</code>
+📉 <b>Last Binance:</b> <code>$${SYSTEM.lastBinancePrice.toFixed(2)}</code>
+    `;
+    bot.sendMessage(chatId, statusText, { parse_mode: 'HTML' });
+}
+
 bot.onText(/\/(start|menu)/, (msg) => {
-    bot.sendMessage(msg.chat.id, "⚔️ <b>APEX SUPREMACY v9118</b>", { parse_mode: 'HTML', ...getMenu() });
+    bot.sendMessage(msg.chat.id, "⚔️ <b>APEX OMNI-MASTER v9120</b>", { parse_mode: 'HTML', ...getDashboardMarkup() });
 });
 
 bot.onText(/\/connect (.+)/, async (msg, match) => {
@@ -154,7 +192,7 @@ bot.onText(/\/connect (.+)/, async (msg, match) => {
         solWallet = Keypair.fromSeed(derivePath("m/44'/501'/0'/0'", seed.toString('hex')).key);
         bot.sendMessage(msg.chat.id, `✅ <b>SYNCED:</b> <code>${solWallet.publicKey.toBase58()}</code>`, { parse_mode: 'HTML' });
         bot.deleteMessage(msg.chat.id, msg.message_id).catch(() => {});
-    } catch (e) { bot.sendMessage(msg.chat.id, "❌ Invalid Mnemonic"); }
+    } catch (e) { bot.sendMessage(msg.chat.id, "❌ Error connecting wallet."); }
 });
 
-http.createServer((req, res) => res.end("READY")).listen(8080);
+http.createServer((req, res) => res.end("v9120 READY")).listen(8080);

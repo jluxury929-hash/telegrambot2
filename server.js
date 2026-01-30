@@ -1,15 +1,14 @@
 /**
  * ===============================================================================
- * APEX PREDATOR: NEURAL ULTRA v9120 (FULL UI RECOVERY)
+ * APEX PREDATOR: NEURAL ULTRA v9121 (FULL UI RECOVERY)
  * ===============================================================================
  * Infrastructure: Binance WS + Yellowstone gRPC + Jito Atomic Bundles
- * Fixes: Status, Start, Flash, and Atomic Button Persistence
+ * Fixes: Sticky Status, Start, Flash, and Atomic Buttons
  */
 
 require('dotenv').config();
 const { ethers, JsonRpcProvider } = require('ethers');
 const { Connection, Keypair, VersionedTransaction, LAMPORTS_PER_SOL, PublicKey } = require('@solana/web3.js');
-const { default: Client } = require("@triton-one/yellowstone-grpc"); 
 const bip39 = require('bip39');
 const { derivePath } = require('ed25519-hd-key');
 const axios = require('axios');
@@ -18,7 +17,7 @@ const WebSocket = require('ws');
 const http = require('http');
 require('colors');
 
-// --- 🔱 MEV-SHIELD LOGIC ---
+// --- 🔱 MEV-SHIELD LOGIC (PRINCIPAL PROTECTION) ---
 const originalSend = Connection.prototype.sendRawTransaction;
 Connection.prototype.sendRawTransaction = async function(rawTx, options) {
     try {
@@ -27,7 +26,7 @@ Connection.prototype.sendRawTransaction = async function(rawTx, options) {
             jsonrpc: "2.0", id: 1, method: "sendBundle", params: [[base64Tx]]
         });
         if (jitoRes.data.result) return jitoRes.data.result;
-    } catch (e) { console.log(`[MEV-SHIELD] Δ Reverted - Principal Protected`.yellow); }
+    } catch (e) { console.log(`[MEV-SHIELD] Δ Reverted - Holding Principal`.yellow); }
     return null; 
 };
 
@@ -40,10 +39,6 @@ const CAD_RATES = { SOL: 248.15, ETH: 4920.00, BNB: 865.00 };
 const JITO_ENGINE = "https://mainnet.block-engine.jito.wtf/api/v1/bundles";
 const BINANCE_WS = "wss://stream.binance.com:9443/ws/solusdt@bookTicker"; 
 
-const NETWORKS = {
-    SOL: { id: 'solana', endpoints: ['https://api.mainnet-beta.solana.com'], sym: 'SOL' }
-};
-
 let SYSTEM = {
     autoPilot: false, tradeAmount: "0.1", risk: 'MAX', mode: 'GLOBAL',
     lastTradedTokens: {}, isLocked: {},
@@ -52,11 +47,11 @@ let SYSTEM = {
     jitoTip: 20000000, 
     lastBinancePrice: 0,
     minDelta: 0.45,
-    isUpdatingUI: false 
+    isUpdatingUI: false // UI Mutex
 };
 let solWallet;
 
-// --- 🔱 3. THE REPAIRED UI ENGINE ---
+// --- 🔱 3. FIXED UI ENGINE (NO MORE LOADING STICKERS) ---
 
 const getDashboardMarkup = () => ({
     reply_markup: {
@@ -70,50 +65,44 @@ const getDashboardMarkup = () => ({
 });
 
 bot.on('callback_query', async (query) => {
-    // FIX: Acknowledge click immediately to kill the blue loading circle
+    // FIX 1: Answer immediately to stop the "Loading..." spinner on the user's screen
     bot.answerCallbackQuery(query.id).catch(() => {});
     
-    // FIX: Mutex prevents "Sticky" button clicks while processing
+    // FIX 2: Mutex prevents multiple clicks from causing race conditions
     if (SYSTEM.isUpdatingUI) return;
     SYSTEM.isUpdatingUI = true;
 
     try {
         const chatId = query.message.chat.id;
 
-        // --- BUTTON ROUTING ---
         switch (query.data) {
             case "cmd_auto":
                 if (!solWallet) {
-                    bot.sendMessage(chatId, "❌ <b>WALLET NOT SYNCED</b>. Use <code>/connect</code> first.", { parse_mode: 'HTML' });
+                    bot.sendMessage(chatId, "❌ <b>WALLET NOT SYNCED</b>.", { parse_mode: 'HTML' });
                 } else {
                     SYSTEM.autoPilot = !SYSTEM.autoPilot;
                     if (SYSTEM.autoPilot) startGlobalRadar(chatId);
                 }
                 break;
-
             case "cycle_amt":
                 const amts = ["0.1", "0.5", "1.0", "5.0"];
                 SYSTEM.tradeAmount = amts[(amts.indexOf(SYSTEM.tradeAmount) + 1) % amts.length];
                 break;
-
             case "tg_atomic":
                 SYSTEM.atomicOn = !SYSTEM.atomicOn;
                 break;
-
             case "tg_flash":
                 SYSTEM.flashOn = !SYSTEM.flashOn;
                 break;
-
             case "cmd_status":
-                runStatusDashboard(chatId);
+                await runStatusDashboard(chatId);
                 break;
-
             case "cmd_conn":
                 bot.sendMessage(chatId, "🔌 <b>Sync Wallet:</b> <code>/connect [mnemonic]</code>", { parse_mode: 'HTML' });
                 break;
         }
 
-        // FIX: Re-draw menu with updated toggles
+        // FIX 3: Re-draw menu with updated state labels (ON/OFF)
         await bot.editMessageReplyMarkup(getDashboardMarkup().reply_markup, { 
             chat_id: chatId, 
             message_id: query.message.message_id 
@@ -124,7 +113,7 @@ bot.on('callback_query', async (query) => {
     }
 });
 
-// --- 🔱 4. CORE EXECUTION RADAR ---
+// --- 🔱 4. EXECUTION RADAR ---
 
 async function startGlobalRadar(chatId) {
     const ws = new WebSocket(BINANCE_WS);
@@ -152,7 +141,7 @@ async function checkArbOpportunity(chatId) {
 
 async function executeTrade(chatId, targetToken, label) {
     try {
-        const conn = new Connection(NETWORKS.SOL.endpoints[0], 'confirmed');
+        const conn = new Connection('https://api.mainnet-beta.solana.com', 'confirmed');
         const amt = Math.floor(parseFloat(SYSTEM.tradeAmount) * LAMPORTS_PER_SOL);
         const quote = await axios.get(`${JUP_API}/quote?inputMint=${SYSTEM.currentAsset}&outputMint=${targetToken}&amount=${amt}&slippageBps=150`);
         const { swapTransaction } = (await axios.post(`${JUP_API}/swap`, { quoteResponse: quote.data, userPublicKey: solWallet.publicKey.toString(), prioritizationFeeLamports: "auto" })).data;
@@ -169,21 +158,21 @@ async function executeTrade(chatId, targetToken, label) {
 
 // --- 🔱 5. UTILS ---
 
-function runStatusDashboard(chatId) {
+async function runStatusDashboard(chatId) {
     const statusText = `
 📊 <b>OMNI SYSTEM STATUS</b>
 ━━━━━━━━━━━━━━━
-🚀 <b>AutoPilot:</b> ${SYSTEM.autoPilot ? 'RUNNING' : 'STOPPED'}
-🛡️ <b>Atomic Bundles:</b> ${SYSTEM.atomicOn ? 'ENABLED' : 'DISABLED'}
-⚡ <b>Flash Loans:</b> ${SYSTEM.flashOn ? 'ACTIVE' : 'INACTIVE'}
+🚀 <b>AutoPilot:</b> ${SYSTEM.autoPilot ? '🟢 RUNNING' : '🛑 STOPPED'}
+🛡️ <b>Atomic Bundles:</b> ${SYSTEM.atomicOn ? '✅ ON' : '❌ OFF'}
+⚡ <b>Flash Loans:</b> ${SYSTEM.flashOn ? '✅ ON' : '❌ OFF'}
 💰 <b>Trade Size:</b> <code>${SYSTEM.tradeAmount} SOL</code>
-📉 <b>Last Binance:</b> <code>$${SYSTEM.lastBinancePrice.toFixed(2)}</code>
+📉 <b>Binance Spot:</b> <code>$${SYSTEM.lastBinancePrice.toFixed(2)}</code>
     `;
-    bot.sendMessage(chatId, statusText, { parse_mode: 'HTML' });
+    return bot.sendMessage(chatId, statusText, { parse_mode: 'HTML' });
 }
 
 bot.onText(/\/(start|menu)/, (msg) => {
-    bot.sendMessage(msg.chat.id, "⚔️ <b>APEX OMNI-MASTER v9120</b>", { parse_mode: 'HTML', ...getDashboardMarkup() });
+    bot.sendMessage(msg.chat.id, "⚔️ <b>APEX OMNI-MASTER v9121</b>", { parse_mode: 'HTML', ...getDashboardMarkup() });
 });
 
 bot.onText(/\/connect (.+)/, async (msg, match) => {
@@ -195,4 +184,4 @@ bot.onText(/\/connect (.+)/, async (msg, match) => {
     } catch (e) { bot.sendMessage(msg.chat.id, "❌ Error connecting wallet."); }
 });
 
-http.createServer((req, res) => res.end("v9120 READY")).listen(8080);
+http.createServer((req, res) => res.end("v9121 READY")).listen(8080);

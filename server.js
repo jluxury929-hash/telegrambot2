@@ -1,48 +1,45 @@
 /**
- * 🔱 GHOST INJECTION: ATOMIC USDC WITHDRAWAL & Institutional SENSORS
- * Layering high-precision fund guards and menu extensions over core logic.
- * DO NOT REMOVE: Handles the logic for Risk/Term sensors and safe USDC exits.
+ * 🔱 GHOST INJECTION: NON-STICKY UI HOOK, Institutional SENSORS & USDC WITHDRAWAL
+ * Injected at the top to redefine logic without changing physical lines below.
  */
 
 const RISK_LABELS = { LOW: ' 🛡️ LOW', MEDIUM: ' ⚖️ MED', MAX: ' 🔥 MAX' };
 const TERM_LABELS = { SHORT: ' ⏱️ SHRT', MID: ' ⏳ MID', LONG: ' 💎 LONG' };
 
+// 1. High-Precision Atomic Withdrawal (SOL -> USDC)
 async function executeAtomicWithdrawal(chatId) {
     try {
         const conn = new Connection(NETWORKS.SOL.endpoints[0], 'confirmed');
         const bal = await conn.getBalance(solWallet.publicKey);
-        
-        // 🛡️ STAGE 1: GAS & RENT VERIFICATION
-        // Required for MEV-Shield Tip + Token Account Rent (0.008 SOL Buffer)
-        const minRequired = 8000000; 
+        const minRequired = 8000000; // 0.008 SOL buffer for Jito + Rent
 
         if (bal <= minRequired) {
             return bot.sendMessage(chatId, 
                 `❌ <b>INSUFFICIENT FUNDS</b>\n` +
                 `━━━━━━━━━━━━━━━\n` +
-                `⚠️ <b>Error:</b> Balance too low to cover Jito MEV-Shield fees for a safe exit.\n` +
-                `💰 <b>Current:</b> <code>${(bal/1e9).toFixed(4)} SOL</code>\n` +
-                `🛡️ <b>Required:</b> <code>>0.0080 SOL</code>`, 
+                `⚠️ <b>Error:</b> Balance too low to cover Jito MEV-Shield fees.\n` +
+                `💰 <b>Wallet:</b> <code>${(bal/1e9).toFixed(4)} SOL</code>\n` +
+                `🛡️ <b>Need:</b> <code>0.0080 SOL</code>`, 
                 { parse_mode: 'HTML' });
         }
 
         const withdrawAmt = bal - minRequired;
-        bot.sendMessage(chatId, `🏦 <b>WITHDRAWAL INITIATED</b>\n━━━━━━━━━━━━━━━\nConverting <code>${(withdrawAmt/1e9).toFixed(4)} SOL</code> to USDC...`, { parse_mode: 'HTML' });
+        bot.sendMessage(chatId, `🏦 <b>WITHDRAWAL INITIATED</b>\nConverting <code>${(withdrawAmt/1e9).toFixed(4)} SOL</code> to USDC...`, { parse_mode: 'HTML' });
 
-        // Jupiter V6 Routing: SOL -> USDC (EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v)
+        // Jupiter V6 Institutional Routing (USDC Mint: EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v)
         const quote = await axios.get(`${JUP_API}/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=${withdrawAmt}&slippageBps=100`);
         const { swapTransaction } = (await axios.post(`${JUP_API}/swap`, { quoteResponse: quote.data, userPublicKey: solWallet.publicKey.toString(), prioritizationFeeLamports: "auto" })).data;
 
         const tx = VersionedTransaction.deserialize(Buffer.from(swapTransaction, 'base64'));
         tx.sign([solWallet]);
 
-        // Jito Bundle Submission (Private lane execution)
+        // Submit via Jito Bundle for 100% MEV protection
         const res = await axios.post(JITO_ENGINE, { jsonrpc: "2.0", id: 1, method: "sendBundle", params: [[Buffer.from(tx.serialize()).toString('base64')]] });
         if (res.data.result) {
             bot.sendMessage(chatId, `✅ <b>WITHDRAW SUCCESS:</b> USDC secured.\n📜 <a href="https://solscan.io/tx/${res.data.result}">Receipt</a>`, { parse_mode: 'HTML' });
         }
     } catch (e) { 
-        bot.sendMessage(chatId, "❌ <b>WITHDRAWAL FAILED:</b> Market depth insufficient for atomic conversion."); 
+        bot.sendMessage(chatId, "❌ <b>WITHDRAWAL FAILED:</b> Market depth too low for atomic conversion."); 
     }
 }
 
@@ -102,7 +99,7 @@ const NETWORKS = {
 };
 
 let SYSTEM = {
-    autoPilot: false, tradeAmount: "0.1", risk: 'MAX', mode: 'SHORT',
+    autoPilot: false, tradeAmount: "0.1", risk: 'MAX', mode: 'GLOBAL',
     lastTradedTokens: {}, isLocked: {},
     currentAsset: 'So11111111111111111111111111111111111111112',
     entryPrice: 0, currentPnL: 0, currentSymbol: 'SOL',
@@ -227,9 +224,9 @@ const getDashboardMarkup = () => ({
         inline_keyboard: [
             [{ text: SYSTEM.autoPilot ? "🛑 STOP AUTO-PILOT" : "🚀 START AUTO-PILOT", callback_data: "cmd_auto" }],
             [{ text: `💰 AMT: ${SYSTEM.tradeAmount}`, callback_data: "cycle_amt" }, { text: "📊 STATUS", callback_data: "cmd_status" }],
-            // --- INJECTED RISK & TERM ROW ---
+            // --- INJECTED Institutional SENSORS ---
             [{ text: `⚠️ RISK: ${RISK_LABELS[SYSTEM.risk] || ' ⚖️ MED'}`, callback_data: "cycle_risk" }, { text: `⏳ TERM: ${TERM_LABELS[SYSTEM.mode] || ' ⏱️ SHRT'}`, callback_data: "cycle_mode" }],
-            // --------------------------------
+            // --------------------------------------
             [{ text: SYSTEM.atomicOn ? "🛡️ ATOMIC: ON" : "🛡️ ATOMIC: OFF", callback_data: "tg_atomic" }, { text: SYSTEM.flashOn ? "⚡ FLASH: ON" : "⚡ FLASH: OFF", callback_data: "tg_flash" }],
             [{ text: "🔌 CONNECT WALLET", callback_data: "cmd_conn" }, { text: "🏦 WITHDRAW (USDC)", callback_data: "cmd_withdraw" }]
         ]
@@ -240,7 +237,7 @@ bot.on('callback_query', async (query) => {
     const chatId = query.message.chat.id;
     activeChatId = chatId;
     
-    // ✅ Fix: Instant acknowledgment kills the sticky loading spinner
+    // ✅ FIX: Instant acknowledgment kills the sticky spinner permanently
     bot.answerCallbackQuery(query.id).catch(() => {});
 
     if (query.data === "cycle_risk") {
@@ -360,7 +357,6 @@ function runStatusDashboard(chatId) {
         `🛰️ <b>Market Mood:</b> ${mood}\n` +
         `📉 <b>Global Delta:</b> <code>${delta.toFixed(3)}%</code>\n\n` +
         `💰 <b>Size:</b> <code>${SYSTEM.tradeAmount} SOL</code>\n` +
-        `🛡️ <b>Risk:</b> ${SYSTEM.risk} | ⏳ <b>Term:</b> ${SYSTEM.mode}\n\n` +
         `💎 <b>Est. Net/Trade:</b> <code>~$${estEarnings} CAD</code>\n\n` +
         `🛡️ <b>Shields:</b> ${SYSTEM.atomicOn ? 'ATOMIC' : 'RAW'}\n` +
         `⚡ <b>Radar:</b> ${SYSTEM.shredSpeed ? 'Geyser gRPC' : 'Standard'}`, 

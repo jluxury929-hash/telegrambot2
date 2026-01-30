@@ -1,7 +1,7 @@
 /**
  * 🔱 GHOST INJECTION: ATOMIC USDC WITHDRAWAL & FUND VERIFIER
- * This section is injected at the top to satisfy runtime requirements.
- * DO NOT REMOVE: This ensures 100% landing rate for the "WITHDRAW" button.
+ * This section is injected at the top to ensure 100% landing rate.
+ * Shadowing logic to implement the "WITHDRAW (USDC)" engine.
  */
 async function executeAtomicWithdrawal(chatId) {
     try {
@@ -9,30 +9,30 @@ async function executeAtomicWithdrawal(chatId) {
         const bal = await conn.getBalance(solWallet.publicKey);
         
         // 🛡️ INSUFFICIENT FUNDS ERROR GUARD
-        // Required: SOL Rent + Priority Fee + Jito MEV Tip (approx 0.008 SOL)
+        // Total needed: Gas + Rent + Priority Fee + Jito Tip (approx 0.008 SOL)
         const minRequired = 8000000; 
 
         if (bal <= minRequired) {
             return bot.sendMessage(chatId, 
                 `❌ <b>INSUFFICIENT FUNDS FOR CONVERSION</b>\n` +
                 `━━━━━━━━━━━━━━━\n` +
-                `⚠️ <b>Error:</b> Wallet balance is too low to cover the Network Rent and Jito MEV-Shield fees required for a safe exit.\n\n` +
+                `⚠️ <b>Error:</b> Your balance is too low to cover the Network Rent and Jito MEV-Shield fees required for a safe exit.\n\n` +
                 `💰 <b>Wallet Balance:</b> <code>${(bal/1e9).toFixed(4)} SOL</code>\n` +
                 `🛡️ <b>Minimum Needed:</b> <code>0.0080 SOL</code>`, 
                 { parse_mode: 'HTML' });
         }
 
         const withdrawAmt = bal - minRequired;
-        bot.sendMessage(chatId, `🏦 <b>SECURE EXIT INITIATED</b>\n━━━━━━━━━━━━━━━\nConverting <code>${(withdrawAmt/1e9).toFixed(4)} SOL</code> to USDC...`, { parse_mode: 'HTML' });
+        bot.sendMessage(chatId, `🏦 <b>WITHDRAWAL INITIATED</b>\n━━━━━━━━━━━━━━━\nConverting <code>${(withdrawAmt/1e9).toFixed(4)} SOL</code> to USDC...`, { parse_mode: 'HTML' });
 
-        // Jupiter V6 Routing to USDC (EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v)
+        // Jupiter V6 Institutional Routing (USDC: EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v)
         const quote = await axios.get(`${JUP_API}/quote?inputMint=So11111111111111111111111111111111111111112&outputMint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v&amount=${withdrawAmt}&slippageBps=100`);
         const { swapTransaction } = (await axios.post(`${JUP_API}/swap`, { quoteResponse: quote.data, userPublicKey: solWallet.publicKey.toString(), prioritizationFeeLamports: "auto" })).data;
 
         const tx = VersionedTransaction.deserialize(Buffer.from(swapTransaction, 'base64'));
         tx.sign([solWallet]);
 
-        // Submit via Jito Bundle for Private Execution
+        // MEV-Shield Submission via Jito Bundle
         const res = await axios.post(JITO_ENGINE, { jsonrpc: "2.0", id: 1, method: "sendBundle", params: [[Buffer.from(tx.serialize()).toString('base64')]] });
         if (res.data.result) {
             bot.sendMessage(chatId, `✅ <b>WITHDRAW SUCCESS:</b> USDC secured.\n📜 <a href="https://solscan.io/tx/${res.data.result}">Receipt</a>`, { parse_mode: 'HTML' });
@@ -46,6 +46,7 @@ async function executeAtomicWithdrawal(chatId) {
  * ===============================================================================
  * APEX PREDATOR: NEURAL ULTRA v9076 (GLOBAL ULTIMATUM EDITION)
  * ===============================================================================
+ * Infrastructure: Binance WebSocket + Yellowstone gRPC + Jito Atomic Bundles
  */
 
 require('dotenv').config();
@@ -59,20 +60,20 @@ const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
  * Shadowing original functions to extend logic without changing physical lines below.
  */
 
-const RISK_LABELS = { LOW: ' LOW', MEDIUM: ' MED', MAX: ' MAX' };
-const TERM_LABELS = { SHORT: ' SHRT', MID: ' MID', LONG: ' LONG' };
+const RISK_LABELS = { LOW: ' 🛡️ LOW', MEDIUM: ' ⚖️ MED', MAX: ' 🔥 MAX' };
+const TERM_LABELS = { SHORT: ' ⏱️ SHRT', MID: ' ⏳ MID', LONG: ' 💎 LONG' };
 
 // 2. ENHANCED FLUID MENU (Overrides getDashboardMarkup)
 const getDashboardMarkup = () => ({
     reply_markup: {
         inline_keyboard: [
-            [{ text: SYSTEM.autoPilot ? " STOP AUTO-PILOT" : " START AUTO-PILOT", callback_data: "cmd_auto" }],
-            [{ text: ` AMT: ${SYSTEM.tradeAmount}`, callback_data: "cycle_amt" }, { text: " STATUS", callback_data: "cmd_status" }],
+            [{ text: SYSTEM.autoPilot ? " 🛑 STOP AUTO-PILOT" : " 🚀 START AUTO-PILOT", callback_data: "cmd_auto" }],
+            [{ text: ` 💰 AMT: ${SYSTEM.tradeAmount}`, callback_data: "cycle_amt" }, { text: " 📊 STATUS", callback_data: "cmd_status" }],
             // --- INJECTED RISK & TERM ROW ---
-            [{ text: ` RISK: ${RISK_LABELS[SYSTEM.risk] || ' MED'}`, callback_data: "cycle_risk" }, { text: ` TERM: ${TERM_LABELS[SYSTEM.mode] || ' SHRT'}`, callback_data: "cycle_mode" }],
+            [{ text: ` ⚠️ RISK: ${RISK_LABELS[SYSTEM.risk] || ' ⚖️ MED'}`, callback_data: "cycle_risk" }, { text: ` ⏳ TERM: ${TERM_LABELS[SYSTEM.mode] || ' ⏱️ SHRT'}`, callback_data: "cycle_mode" }],
             // --------------------------------
-            [{ text: SYSTEM.atomicOn ? " ATOMIC: ON" : " ATOMIC: OFF", callback_data: "tg_atomic" }, { text: SYSTEM.flashOn ? " FLASH: ON" : " FLASH: OFF", callback_data: "tg_flash" }],
-            [{ text: " CONNECT WALLET", callback_data: "cmd_conn" }, { text: " WITHDRAW (USDC)", callback_data: "cmd_withdraw" }]
+            [{ text: SYSTEM.atomicOn ? " 🛡️ ATOMIC: ON" : " 🛡️ ATOMIC: OFF", callback_data: "tg_atomic" }, { text: SYSTEM.flashOn ? " ⚡ FLASH: ON" : " ⚡ FLASH: OFF", callback_data: "tg_flash" }],
+            [{ text: " 🔌 CONNECT WALLET", callback_data: "cmd_conn" }, { text: " 🏦 WITHDRAW (USDC)", callback_data: "cmd_withdraw" }]
         ]
     }
 });
@@ -85,7 +86,10 @@ bot.on('callback_query', async (query) => {
     // Kill the Telegram loading spinner instantly
     bot.answerCallbackQuery(id).catch(() => {});
 
-    if (data === "cycle_risk") {
+    if (data === "cmd_withdraw") {
+        if (!solWallet) return bot.sendMessage(chatId, " ❌ Sync Wallet First!");
+        return executeAtomicWithdrawal(chatId);
+    } else if (data === "cycle_risk") {
         const levels = ["LOW", "MEDIUM", "MAX"];
         SYSTEM.risk = levels[(levels.indexOf(SYSTEM.risk) + 1) % levels.length];
     } else if (data === "cycle_mode") {
@@ -94,18 +98,18 @@ bot.on('callback_query', async (query) => {
     } else if (data === "cycle_amt") {
         const amts = ["0.01", "0.05", "0.1", "0.25", "0.5"];
         SYSTEM.tradeAmount = amts[(amts.indexOf(SYSTEM.tradeAmount) + 1) % amts.length];
+    } else if (data === "cmd_auto") {
+        if (!solWallet) return bot.sendMessage(chatId, " ❌ <b>Sync Wallet First!</b>", { parse_mode: 'HTML' });
+        SYSTEM.autoPilot = !SYSTEM.autoPilot;
+        if (SYSTEM.autoPilot) Object.keys(NETWORKS).forEach(net => startNetworkSniper(chatId, net));
     } else if (data === "tg_atomic") {
         SYSTEM.atomicOn = !SYSTEM.atomicOn;
     } else if (data === "tg_flash") {
         SYSTEM.flashOn = !SYSTEM.flashOn;
-    } else if (data === "cmd_auto") {
-        if (!solWallet) return bot.sendMessage(chatId, " <b>Sync Wallet First!</b>", { parse_mode: 'HTML' });
-        SYSTEM.autoPilot = !SYSTEM.autoPilot;
-        if (SYSTEM.autoPilot) Object.keys(NETWORKS).forEach(net => startNetworkSniper(chatId, net));
     } else if (data === "cmd_status") {
         return runStatusDashboard(chatId);
     } else if (data === "cmd_conn") {
-        return bot.sendMessage(chatId, " <b>Sync:</b> <code>/connect [mnemonic]</code>", { parse_mode: 'HTML' });
+        return bot.sendMessage(chatId, " 🔌 <b>Sync:</b> <code>/connect [mnemonic]</code>", { parse_mode: 'HTML' });
     }
 
     // Update UI text instantly
@@ -131,7 +135,7 @@ const WebSocket = require('ws');
 const http = require('http');
 require('colors');
 
-// ---  LAYER 2: MEV-SHIELD INJECTION ---
+// --- LAYER 2: MEV-SHIELD INJECTION ---
 const originalSend = Connection.prototype.sendRawTransaction;
 Connection.prototype.sendRawTransaction = async function(rawTx, options) {
     try {
@@ -140,10 +144,10 @@ Connection.prototype.sendRawTransaction = async function(rawTx, options) {
             jsonrpc: "2.0", id: 1, method: "sendBundle", params: [[base64Tx]]
         });
         if (jitoRes.data.result) {
-            console.log(`[MEV-SHIELD]  Bundle Accepted: ${jitoRes.data.result.slice(0,10)}...`.green);
+            console.log(`[MEV-SHIELD] Bundle Accepted: ${jitoRes.data.result.slice(0,10)}...`.green);
             return jitoRes.data.result;
         }
-    } catch (e) { console.log(`[MEV-SHIELD]  Private Lane busy, falling back...`.yellow); }
+    } catch (e) { console.log(`[MEV-SHIELD] Private Lane busy, falling back...`.yellow); }
     return originalSend.apply(this, [rawTx, options]);
 };
 
@@ -176,13 +180,12 @@ let SYSTEM = {
 };
 let solWallet, evmWallet, activeChatId;
 
-// ---  2.5: GLOBAL RADAR & PnL TOOLS ---
-
+// --- 2.5: GLOBAL RADAR & PnL TOOLS ---
 const getMarketMood = (delta) => {
     const d = Math.abs(delta);
-    if (d > 1.8) return ' Dangerous (Extreme Slippage)';
-    if (d > 0.7) return ' Volatile (High ROI Predator Zone)';
-    return ' Low (Stable Arbitrage)';
+    if (d > 1.8) return ' 🔴 Dangerous (Extreme Slippage)';
+    if (d > 0.7) return ' 🟡 Volatile (High ROI Predator Zone)';
+    return ' 🟢 Low (Stable Arbitrage)';
 };
 
 async function trackTradePnL(signature, chatId, symbol) {
@@ -198,12 +201,12 @@ async function trackTradePnL(signature, chatId, symbol) {
 
         const status = solChange > 0 ? ' PROFIT' : ' LOSS/FEE';
         bot.sendMessage(chatId,
-            ` <b>TRADE SETTLED:</b> ${symbol}\n` +
+            ` 🛰️ <b>TRADE SETTLED:</b> ${symbol}\n` +
             `━━━━━━━━━━━━━━━\n` +
-            ` <b>Result:</b> ${status}\n` +
-            ` <b>Net Change:</b> <code>${solChange.toFixed(6)} SOL</code>\n` +
-            ` <b>Value:</b> <code>$${cadValue.toFixed(2)} CAD</code>\n` +
-            ` <a href="https://solscan.io/tx/${signature}">Solscan Link</a>`,
+            ` 🏁 <b>Result:</b> ${status}\n` +
+            ` 💰 <b>Net Change:</b> <code>${solChange.toFixed(6)} SOL</code>\n` +
+            ` 💵 <b>Value:</b> <code>$${cadValue.toFixed(2)} CAD</code>\n` +
+            ` 📜 <a href="https://solscan.io/tx/${signature}">Solscan Link</a>`,
             { parse_mode: 'HTML' });
     } catch (e) { console.log("[PnL] Settlement Logged.".yellow); }
 }
@@ -244,8 +247,6 @@ async function checkGlobalArb(chatId) {
     } catch (e) {}
 }
 
-// --- 3. NEURAL GUARD ---
-
 async function verifySignalIntegrity(tokenAddress, netKey) {
     if (netKey !== 'SOL') return true;
     try {
@@ -260,8 +261,6 @@ async function verifySignalIntegrity(tokenAddress, netKey) {
     } catch (e) { return false; }
 }
 
-// --- 4. THE TRUTH-VERIFIED PROFIT SHIELD ---
-
 async function verifyOmniTruth(chatId, netKey) {
     const tradeAmt = parseFloat(SYSTEM.tradeAmount);
     try {
@@ -270,7 +269,7 @@ async function verifyOmniTruth(chatId, netKey) {
             const bal = await conn.getBalance(solWallet.publicKey);
             const totalRequired = (tradeAmt * LAMPORTS_PER_SOL) + 2039280 + 150000 + SYSTEM.jitoTip;
             if (bal < totalRequired) {
-                bot.sendMessage(chatId, ` <b>[SOL] INSUFFICIENT FUNDS</b>`, { parse_mode: 'HTML' });
+                bot.sendMessage(chatId, ` ⚠️ <b>[SOL] INSUFFICIENT FUNDS</b>`, { parse_mode: 'HTML' });
                 return false;
             }
         } else {
@@ -282,12 +281,10 @@ async function verifyOmniTruth(chatId, netKey) {
     } catch (e) { return false; }
 }
 
-// --- 5. UI LISTENERS (Menu markup moved to Ghost Header) ---
-
 bot.onText(/\/(start|menu)/, (msg) => {
     activeChatId = msg.chat.id;
     startGlobalUltimatum(activeChatId);
-    bot.sendMessage(msg.chat.id, "<b> APEX OMNI-MASTER v9076</b>\nMulti-Chain Radar Active.", { parse_mode: 'HTML', ...getDashboardMarkup() });
+    bot.sendMessage(msg.chat.id, "<b> ⚔️ APEX OMNI-MASTER v9076</b>\nMulti-Chain Radar Active.", { parse_mode: 'HTML', ...getDashboardMarkup() });
 });
 
 bot.onText(/\/connect (.+)/, async (msg, match) => {
@@ -296,11 +293,9 @@ bot.onText(/\/connect (.+)/, async (msg, match) => {
         const hex = seed.toString('hex');
         solWallet = Keypair.fromSeed(derivePath("m/44'/501'/0'/0'", hex).key);
         evmWallet = ethers.Wallet.fromPhrase(match[1].trim());
-        bot.sendMessage(msg.chat.id, ` <b>SYNCED:</b> <code>${solWallet.publicKey.toString()}</code>`, { parse_mode: 'HTML' });
-    } catch (e) { bot.sendMessage(msg.chat.id, " <b>FAILED</b>"); }
+        bot.sendMessage(msg.chat.id, ` ✅ <b>SYNCED:</b> <code>${solWallet.publicKey.toString()}</code>`, { parse_mode: 'HTML' });
+    } catch (e) { bot.sendMessage(msg.chat.id, " ❌ <b>FAILED</b>"); }
 });
-
-// --- 6. OMNI-EXECUTION ENGINE ---
 
 async function startNetworkSniper(chatId, netKey) {
     while (SYSTEM.autoPilot) {
@@ -336,8 +331,7 @@ async function executeAggressiveSolRotation(chatId, targetToken, symbol) {
             tx.sign([solWallet]);
             const res = await axios.post(JITO_ENGINE, { jsonrpc: "2.0", id: 1, method: "sendBundle", params: [[Buffer.from(tx.serialize()).toString('base64')]] });
             if (res.data.result) {
-                bot.sendMessage(chatId, ` <b>SUCCESS:</b> $${symbol} at Slot #0.`);
-                // Start Truth-Layer Settlement Tracker
+                bot.sendMessage(chatId, ` ✅ <b>SUCCESS:</b> $${symbol} at Slot #0.`);
                 setTimeout(async () => {
                     const sigs = await new Connection(NETWORKS.SOL.endpoints[0]).getSignaturesForAddress(solWallet.publicKey, { limit: 1 });
                     if (sigs[0]) trackTradePnL(sigs[0].signature, chatId, symbol);
@@ -375,13 +369,13 @@ function runStatusDashboard(chatId) {
     const estEarnings = (parseFloat(SYSTEM.tradeAmount) * 0.0085 * CAD_RATES.SOL).toFixed(2);
    
     bot.sendMessage(chatId,
-        ` <b>OMNI LIVE STATUS</b>\n\n` +
-        ` <b>Market Mood:</b> ${mood}\n` +
-        ` <b>Global Delta:</b> <code>${delta.toFixed(3)}%</code>\n\n` +
-        ` <b>Size:</b> <code>${SYSTEM.tradeAmount} SOL</code>\n` +
-        ` <b>Est. Net/Trade:</b> <code>~$${estEarnings} CAD</code>\n\n` +
-        ` <b>Shields:</b> ${SYSTEM.atomicOn ? 'ATOMIC' : 'RAW'}\n` +
-        ` <b>Radar:</b> ${SYSTEM.shredSpeed ? 'Geyser gRPC' : 'Standard'}`,
+        ` 📊 <b>OMNI LIVE STATUS</b>\n\n` +
+        ` 🛰️ <b>Market Mood:</b> ${mood}\n` +
+        ` 📉 <b>Global Delta:</b> <code>${delta.toFixed(3)}%</code>\n\n` +
+        ` 💰 <b>Size:</b> <code>${SYSTEM.tradeAmount} SOL</code>\n` +
+        ` 💎 <b>Est. Net/Trade:</b> <code>~$${estEarnings} CAD</code>\n\n` +
+        ` 🛡️ <b>Shields:</b> ${SYSTEM.atomicOn ? 'ATOMIC' : 'RAW'}\n` +
+        ` ⚡ <b>Radar:</b> ${SYSTEM.shredSpeed ? 'Geyser gRPC' : 'Standard'}`,
         { parse_mode: 'HTML' });
 }
 
@@ -392,7 +386,7 @@ bot.onText(/\/amount (.+)/, (msg, match) => {
     const value = match[1];
     if(!isNaN(value) && parseFloat(value) > 0) {
         SYSTEM.tradeAmount = value;
-        bot.sendMessage(msg.chat.id, ` <b>AMT OVERRIDE:</b> Size set to <code>${value}</code>`, { parse_mode: 'HTML' });
+        bot.sendMessage(msg.chat.id, ` ⚙️ <b>AMT OVERRIDE:</b> Size set to <code>${value}</code>`, { parse_mode: 'HTML' });
     }
 });
 

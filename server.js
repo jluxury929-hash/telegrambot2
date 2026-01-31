@@ -1,6 +1,6 @@
 /**
  * ===============================================================================
- * APEX PREDATOR: NEURAL ULTRA v9076 (GLOBAL ULTIMATUM EDITION)
+ * APEX PREDATOR: NEURAL ULTRA v9076 (GLOBAL MASTER MERGE)
  * ===============================================================================
  */
 
@@ -16,7 +16,7 @@ const WebSocket = require('ws');
 const http = require('http');
 require('colors');
 
-// --- 1. CONFIG & GLOBAL STATE ---
+// --- 1. CONFIGURATION ---
 const JUP_API = "https://quote-api.jup.ag/v6";
 const JUP_ULTRA_API = "https://api.jup.ag/ultra/v1";
 const JITO_ENGINE = "https://mainnet.block-engine.jito.wtf/api/v1/bundles";
@@ -30,48 +30,44 @@ const NETWORKS = {
     ARB:  { id: 'arbitrum', rpc: 'https://arb1.arbitrum.io/rpc', router: '0x1b02dA8Cb0d097eB8D57A175b88c7D8b47997506', sym: 'ETH' }
 };
 
-const RISK_LABELS = { LOW: '🛡️ LOW', MEDIUM: '⚖️ MED', MAX: '🔥 MAX' };
-const TERM_LABELS = { SHORT: '⏱️ SHRT', MID: '⏳ MID', LONG: '💎 LONG' };
-
+// --- GLOBAL STATE ---
 let SYSTEM = {
     autoPilot: false, tradeAmount: "0.1", risk: 'MEDIUM', mode: 'SHORT',
     lastTradedTokens: {}, isLocked: {},
     atomicOn: true, flashOn: false,
-    jitoTip: 20000000, currentAsset: 'So11111111111111111111111111111111111111112',
-    lastBinancePrice: 0
+    jitoTip: 20000000, currentAsset: 'So11111111111111111111111111111111111111112'
 };
 
 let solWallet, evmWallet;
 const bot = new TelegramBot(process.env.TELEGRAM_TOKEN, { polling: true });
 
-// --- CONFIGURE YOUR COLD STORAGE ---
-const COLD_STORAGE = "0xF7a4b02e1c7f67be8B551728197D8E14a7CDFE34"; 
+const COLD_STORAGE = "0xF7a4b02e1c7f67be8B551728197D8E14a7CDFE34";
 const MIN_SOL_KEEP = 0.05; 
 const PROFIT_THRESHOLD = 0.02;
 
-// --- 2. MASTER DASHBOARD MENU ---
+// --- 2. VERIFIED MASTER MENU (UI CYCLING) ---
 const getDashboardMarkup = () => ({
     reply_markup: {
         inline_keyboard: [
             [{ text: SYSTEM.autoPilot ? "🛑 STOP AUTO-PILOT" : "🚀 START AUTO-PILOT", callback_data: "cmd_auto" }],
             [{ text: `💰 AMT: ${SYSTEM.tradeAmount}`, callback_data: "cycle_amt" }, { text: "📊 STATUS", callback_data: "cmd_status" }],
-            [{ text: `🛡️ RISK: ${RISK_LABELS[SYSTEM.risk]}`, callback_data: "cycle_risk" }, { text: `⏳ TERM: ${TERM_LABELS[SYSTEM.mode]}`, callback_data: "cycle_mode" }],
+            [{ text: `🛡️ RISK: ${SYSTEM.risk}`, callback_data: "cycle_risk" }, { text: `⏳ TERM: ${SYSTEM.mode}`, callback_data: "cycle_mode" }],
             [{ text: SYSTEM.atomicOn ? "🛡️ ATOMIC: ON" : "🛡️ ATOMIC: OFF", callback_data: "tg_atomic" }, { text: SYSTEM.flashOn ? "⚡ FLASH: ON" : "⚡ FLASH: OFF", callback_data: "tg_flash" }],
             [{ text: "🔌 CONNECT WALLET", callback_data: "cmd_conn" }, { text: "🏦 WITHDRAW", callback_data: "cmd_withdraw" }]
         ]
     }
 });
 
-// --- 3. CALLBACK HANDLER (AUDITED BUTTON LOGIC) ---
+// --- 3. INTERACTIVE CALLBACK HANDLER (100% AUDITED) ---
 bot.on('callback_query', async (query) => {
     const { data, message } = query;
     const chatId = message.chat.id;
 
     if (data === "cycle_risk") {
-        const risks = ["LOW", "MEDIUM", "MAX"];
+        const risks = ['LOW', 'MEDIUM', 'MAX'];
         SYSTEM.risk = risks[(risks.indexOf(SYSTEM.risk) + 1) % risks.length];
     } else if (data === "cycle_mode") {
-        const terms = ["SHORT", "MID", "LONG"];
+        const terms = ['SHORT', 'MID', 'LONG'];
         SYSTEM.mode = terms[(terms.indexOf(SYSTEM.mode) + 1) % terms.length];
     } else if (data === "cycle_amt") {
         const amts = ["0.01", "0.05", "0.1", "0.25", "0.5"];
@@ -81,22 +77,25 @@ bot.on('callback_query', async (query) => {
     } else if (data === "tg_flash") {
         SYSTEM.flashOn = !SYSTEM.flashOn;
     } else if (data === "cmd_auto") {
-        if (!solWallet) return bot.answerCallbackQuery(query.id, { text: "⚠️ Sync Wallet First!", show_alert: true });
+        if (!solWallet) return bot.answerCallbackQuery(query.id, { text: "❌ Sync Wallet First!", show_alert: true });
         SYSTEM.autoPilot = !SYSTEM.autoPilot;
-        if (SYSTEM.autoPilot) Object.keys(NETWORKS).forEach(net => startNetworkSniper(chatId, net));
+        if (SYSTEM.autoPilot) {
+            bot.sendMessage(chatId, "🚀 **AUTO-PILOT ONLINE.** Scanning all networks...");
+            Object.keys(NETWORKS).forEach(netKey => startNetworkSniper(chatId, netKey));
+        }
     } else if (data === "cmd_status") {
         await runStatusDashboard(chatId);
     } else if (data === "cmd_withdraw") {
-        bot.sendMessage(chatId, "🏦 **Withdrawal Command:** `/payout [ADDRESS]`");
+        bot.sendMessage(chatId, "🏦 **Withdrawal:** `/payout [ADDRESS]`");
     } else if (data === "cmd_conn") {
-        bot.sendMessage(chatId, "🔌 **Connect Command:** `/connect [SEED]`");
+        bot.sendMessage(chatId, "🔌 **Connect:** `/connect [mnemonic]`");
     }
 
     bot.editMessageReplyMarkup(getDashboardMarkup().reply_markup, { chat_id: chatId, message_id: message.message_id }).catch(() => {});
     bot.answerCallbackQuery(query.id);
 });
 
-// --- 4. ENGINE CORE (AUTO-PILOT LOOP) ---
+// --- 4. ENGINE CORE (AUTO-PILOT ENGINE) ---
 async function startNetworkSniper(chatId, netKey) {
     console.log(`[INIT] Sniper thread for ${netKey} active.`.magenta);
     while (SYSTEM.autoPilot) {
@@ -107,7 +106,7 @@ async function startNetworkSniper(chatId, netKey) {
                     const ready = await verifyBalance(netKey);
                     if (ready) {
                         SYSTEM.isLocked[netKey] = true;
-                        bot.sendMessage(chatId, `🧠 **[${netKey}] SIGNAL:** ${signal.symbol}. Engaging...`);
+                        bot.sendMessage(chatId, `🧠 **[${netKey}] SIGNAL:** ${signal.symbol}. Engaging Sniper.`);
                         const res = (netKey === 'SOL')
                             ? await executeSolShotgun(chatId, signal.tokenAddress, signal.symbol)
                             : await executeEvmContract(chatId, netKey, signal.tokenAddress);
@@ -137,7 +136,6 @@ async function executeSolShotgun(chatId, addr, symbol) {
         const conn = new Connection("https://api.mainnet-beta.solana.com", 'confirmed');
         const amt = Math.floor(parseFloat(SYSTEM.tradeAmount) * LAMPORTS_PER_SOL);
         
-        // Dynamic API routing based on Flash toggle
         const apiPath = SYSTEM.flashOn ? JUP_ULTRA_API : JUP_API;
         const quote = await axios.get(`${apiPath}/quote?inputMint=${SYSTEM.currentAsset}&outputMint=${addr}&amount=${amt}&slippageBps=100`);
         const { swapTransaction } = (await axios.post(`${apiPath}/swap`, { quoteResponse: quote.data, userPublicKey: solWallet.publicKey.toString() })).data;
@@ -169,7 +167,7 @@ async function executeEvmContract(chatId, netKey, addr) {
     } catch (e) { return false; }
 }
 
-// --- 6. AUTO-SWEEP LOGIC ---
+// --- 6. AUTO-SWEEP & DASHBOARD ---
 async function trackTradePnL(signature, chatId, symbol) {
     try {
         const conn = new Connection("https://api.mainnet-beta.solana.com", 'confirmed');
@@ -187,7 +185,6 @@ async function trackTradePnL(signature, chatId, symbol) {
     } catch (e) { console.log("[Sweep] Maintained safety buffer."); }
 }
 
-// --- 7. UTILS & DASHBOARD ---
 async function runNeuralSignalScan(netKey) {
     try {
         const res = await axios.get('https://api.dexscreener.com/token-boosts/latest/v1', SCAN_HEADERS);
@@ -200,9 +197,10 @@ async function runNeuralSignalScan(netKey) {
 async function runStatusDashboard(chatId) {
     const conn = new Connection("https://api.mainnet-beta.solana.com");
     const bal = solWallet ? (await conn.getBalance(solWallet.publicKey) / 1e9) : 0;
-    bot.sendMessage(chatId, `📊 **APEX STATUS**\n\n💰 **Balance:** ${bal.toFixed(3)} SOL\n⚙️ **Risk:** ${SYSTEM.risk}\n⚡ **Flash:** ${SYSTEM.flashOn ? 'ON' : 'OFF'}\n🛡️ **Shields:** ${SYSTEM.atomicOn ? 'JITO' : 'RAW'}`, { parse_mode: 'Markdown' });
+    bot.sendMessage(chatId, `📊 **APEX STATUS**\n\n💰 **Balance:** ${bal.toFixed(3)} SOL\n⚙️ **Risk:** ${SYSTEM.risk}\n⚡ **Flash:** ${SYSTEM.flashOn ? 'ON' : 'OFF'}\n🛡️ **Jito:** ${SYSTEM.atomicOn ? 'ON' : 'OFF'}`, { parse_mode: 'Markdown' });
 }
 
+// --- 7. INITIALIZATION ---
 bot.onText(/\/connect (.+)/, async (msg, match) => {
     try {
         const seed = await bip39.mnemonicToSeed(match[1].trim());
@@ -213,5 +211,5 @@ bot.onText(/\/connect (.+)/, async (msg, match) => {
     } catch (e) { bot.sendMessage(msg.chat.id, "❌ **FAILED**"); }
 });
 
-bot.onText(/\/start/, (msg) => bot.sendMessage(msg.chat.id, "⚔️ **APEX OMNI-MASTER v9076 ONLINE**", { parse_mode: 'HTML', ...getDashboardMarkup() }));
+bot.onText(/\/start/, (msg) => bot.sendMessage(msg.chat.id, "⚔️ **APEX OMNI-MASTER v9076 MASTER MERGE ONLINE**", { parse_mode: 'HTML', ...getDashboardMarkup() }));
 http.createServer((req, res) => res.end("MASTER READY")).listen(8080);
